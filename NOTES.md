@@ -12,10 +12,7 @@ changing anything structural.
 
 **Python stdlib + vanilla ES modules, no dependencies, no build step.**
 
-Not purely a taste call. Node on this machine is broken — `npm` exists at
-`/opt/homebrew/bin/npm` but its `node` shim is gone — so anything needing
-`npm install` was out from the start. It also matched the brief: the complaint
-about the previous tool was bloat.
+Node was not available in the OG enviroment
 
 Consequences worth knowing:
 
