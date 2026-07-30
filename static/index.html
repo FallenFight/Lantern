@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Lantern</title>
+<link rel="stylesheet" href="/css/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0a0c'/%3E%3Cg stroke='%23e8ecf2' stroke-width='1.7' fill='none' stroke-linecap='round'%3E%3Cpath d='M13.5 9.4a2.5 2.5 0 015 0'/%3E%3Cpath d='M12.8 11.3h6.4M11.6 13.1h8.8M12.5 13.3 12 22.4M19.5 13.3l.5 9.1M11.9 22.6h8.2M13.6 24.5h4.8'/%3E%3C/g%3E%3Cpath d='M16 14.4C17.1 17.2 18.5 18 18.5 19.6a2.5 2.5 0 01-5 0c0-1.6 1.4-2.4 2.5-5.2z' fill='%23ff9b28'/%3E%3Cpath d='M16 16.6c.6 1.6 1.2 2.1 1.2 3a1.2 1.2 0 01-2.4 0c0-.9.6-1.4 1.2-3z' fill='%23fffef6'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<div id="app" class="app">
+
+  <!-- ───────────────────────── sidebar ───────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <button class="btn btn-primary btn-new" id="btn-new-chat" title="New chat  (⌘N)">
+        <svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>
+        <span>New chat</span>
+      </button>
+      <button class="btn btn-icon" id="btn-collapse" title="Collapse sidebar  (⌘B)">
+        <svg viewBox="0 0 24 24" class="ic"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-search">
+      <svg viewBox="0 0 24 24" class="ic"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+      <input id="chat-search" type="search" placeholder="Search chats…" autocomplete="off" spellcheck="false">
+      <button class="clear-x" id="clear-search" hidden aria-label="Clear">&times;</button>
+    </div>
+
+    <nav class="chat-list" id="chat-list"><div class="lens" id="chat-lens" hidden></div></nav>
+
+    <div class="sidebar-foot">
+      <button class="foot-btn" id="btn-personas" title="Personas  (⌘P)">
+        <svg viewBox="0 0 24 24" class="ic"><path d="M12 11a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>
+        <span>Personas</span>
+      </button>
+      <button class="foot-btn" id="btn-models" title="Models  (⌘M)">
+        <svg viewBox="0 0 24 24" class="ic"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+        <span>Models</span>
+      </button>
+      <button class="foot-btn" id="btn-settings" title="Settings  (⌘,)">
+        <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1.03 1.56V21a2 2 0 11-4 0v-.1A1.7 1.7 0 008.9 19.3a1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.7 1.7 0 004.7 15a1.7 1.7 0 00-1.56-1.03H3a2 2 0 110-4h.1A1.7 1.7 0 004.7 8.9a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06A1.7 1.7 0 009 4.7a1.7 1.7 0 001.03-1.56V3a2 2 0 114 0v.1A1.7 1.7 0 0015.1 4.7a1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06A1.7 1.7 0 0019.3 9v.03a1.7 1.7 0 001.56 1.03H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1.03z"/></svg>
+        <span>Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <button class="rail-expand" id="btn-expand" title="Show sidebar  (⌘B)" hidden>
+    <svg viewBox="0 0 24 24" class="ic"><path d="M9 6l6 6-6 6"/></svg>
+  </button>
+
+  <!-- ───────────────────────── main ───────────────────────── -->
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left pill-group">
+        <div class="picker" id="model-picker-wrap">
+          <button class="pill pill-model" id="model-picker" title="Change model">
+            <span class="pill-label" id="model-name">—</span>
+            <svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="menu" id="model-menu" hidden></div>
+        </div>
+
+        <div class="picker" id="persona-picker-wrap">
+          <button class="pill" id="persona-picker" title="Change persona  (⌘⇧P)">
+            <span id="persona-emoji">✨</span>
+            <span class="pill-label" id="persona-name">Default</span>
+            <svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="menu" id="persona-menu" hidden></div>
+        </div>
+
+        <div class="picker" id="think-wrap" hidden>
+          <button class="pill pill-think" id="think-toggle" title="Extended thinking">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M9.5 3.5a5 5 0 00-4 8 4 4 0 001.5 6.5V21h6v-3a4 4 0 001.5-6.5 5 5 0 00-4-8zM10 21v-4"/></svg>
+            <span class="pill-label" id="think-label">Think</span>
+            <span id="think-caret" hidden><svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="menu" id="think-menu" hidden></div>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="pill-group pill-group-right">
+        <span class="status-dot" id="status-dot" title="Ollama status"></span>
+        <button class="btn btn-icon" id="btn-params" title="Model parameters">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        </button>
+        <button class="btn btn-icon" id="btn-theme" title="Toggle theme  (⌘⇧L)">
+          <svg viewBox="0 0 24 24" class="ic" id="theme-icon"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+        </button>
+        </div>
+        <div class="picker satellite">
+          <button class="btn btn-icon" id="btn-chat-menu" title="Chat actions">
+            <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+          </button>
+          <div class="menu menu-right" id="chat-menu" hidden></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="banner" id="banner" hidden></div>
+
+    <div class="find-bar" id="find-bar" hidden>
+      <svg viewBox="0 0 24 24" class="ic ic-sm"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+      <input id="find-input" placeholder="Find in this chat…" autocomplete="off" spellcheck="false">
+      <span class="find-count" id="find-count"></span>
+      <button class="btn btn-icon" id="find-prev" title="Previous (⇧⏎)">
+        <svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M18 15l-6-6-6 6"/></svg></button>
+      <button class="btn btn-icon" id="find-next" title="Next (⏎)">
+        <svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button class="btn btn-icon" id="find-close" title="Close (Esc)">
+        <svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+
+    <div class="scroll" id="scroll">
+      <div class="thread" id="thread"></div>
+      <div class="empty" id="empty">
+        <div class="empty-mark">
+          <svg viewBox="0 0 24 24"><path d="M9.9 4.2a2.1 2.1 0 014.2 0"/><path d="M9.4 6.1h5.2M8.3 7.6h7.4M9.1 7.8 8.7 16.6M14.9 7.8l.4 8.8M8.6 16.8h6.8M10.1 18.6h3.8"/><path d="M12 9.9c.85 2.1 1.95 2.7 1.95 3.9a1.95 1.95 0 01-3.9 0C10.05 12.6 11.15 12 12 9.9z" fill="currentColor" stroke="none" opacity=".92"/></svg>
+        </div>
+        <h1>Lantern</h1>
+        <p class="empty-sub" id="empty-sub">Local chat over Ollama.</p>
+        <div class="starters" id="starters"></div>
+      </div>
+    </div>
+
+    <button class="jump-btn" id="jump-btn" hidden title="Scroll to bottom">
+      <svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+    </button>
+
+    <div class="composer-wrap">
+      <div class="attachments" id="attachments" hidden></div>
+      <div class="composer" id="composer">
+        <button class="btn btn-icon btn-attach" id="btn-attach" title="Attach image or text file">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M21.4 11.05l-8.5 8.49a5 5 0 01-7.07-7.07l8.49-8.49a3.5 3.5 0 014.95 4.95l-8.49 8.49a2 2 0 01-2.83-2.83l7.79-7.78"/></svg>
+        </button>
+        <textarea id="input" rows="1" placeholder="Message…  (⏎ to send, ⇧⏎ newline)" spellcheck="true"></textarea>
+        <button class="btn btn-send" id="btn-send" title="Send  (⏎)">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+        <button class="btn btn-stop" id="btn-stop" title="Stop  (Esc)" hidden>
+          <svg viewBox="0 0 24 24" class="ic"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
+        </button>
+      </div>
+      <div class="composer-foot">
+        <span id="ctx-hint"></span>
+        <span class="grow"></span>
+        <span id="live-stats"></span>
+      </div>
+    </div>
+    <input type="file" id="file-input" multiple hidden
+           accept="image/*,.txt,.md,.json,.csv,.py,.js,.ts,.tsx,.jsx,.html,.css,.sh,.yml,.yaml,.toml,.rs,.go,.java,.c,.cpp,.h,.sql,.xml,.log">
+  </main>
+</div>
+
+<!-- ───────────────────────── overlays ───────────────────────── -->
+<div class="overlay" id="overlay" hidden></div>
+
+<div class="palette" id="palette" hidden>
+  <div class="palette-box">
+    <input id="palette-input" placeholder="Type a command or search…" autocomplete="off" spellcheck="false">
+    <div class="palette-list" id="palette-list"></div>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-box" id="modal-box">
+    <header class="modal-head">
+      <h2 id="modal-title">Title</h2>
+      <button class="btn btn-icon" id="modal-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" class="ic"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal-body" id="modal-body"></div>
+    <footer class="modal-foot" id="modal-foot" hidden></footer>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

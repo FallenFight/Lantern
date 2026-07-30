@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Launch Lantern and open it in your browser.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+# Share one history with Lantern.app instead of creating a second one in ./data.
+export LANTERN_DATA="${LANTERN_DATA:-$HOME/Library/Application Support/Lantern}"
+
+if ! command -v ollama >/dev/null 2>&1; then
+  echo "Ollama isn't installed. Get it from https://ollama.com/download" >&2
+  exit 1
+fi
+
+# Start ollama in the background if it isn't already listening.
+if ! curl -sf --max-time 2 "${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags" >/dev/null 2>&1; then
+  echo "Starting ollama serve…"
+  ollama serve >/dev/null 2>&1 &
+  for _ in $(seq 1 20); do
+    sleep 0.4
+    curl -sf --max-time 2 "${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags" >/dev/null 2>&1 && break
+  done
+fi
+
+exec python3 server.py --open "$@"

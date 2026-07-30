@@ -1,0 +1,16 @@
+# Runtime state — chats, personas, settings. Never commit this.
+data/
+*.log
+
+# Build output
+dist/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
