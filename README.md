@@ -144,7 +144,7 @@ level as plain on.
 
 ## Tools
 
-The **Tools** pill lets a model call into Lantern for facts it cannot know. Two
+The **Tools** pill lets a model call into Lantern for facts it cannot know. Three
 ship so far:
 
 - **`current_datetime`** — reads this machine's clock, in any IANA timezone. Ask
@@ -153,6 +153,17 @@ ship so far:
 - **`search_chats`** — full-text search across your saved conversations, so
   "what did I conclude about X?" can be answered from what you actually said.
   It returns titles, dates and short excerpts, never whole conversations.
+- **`calculate`** — exact arithmetic. Models get long multiplication and
+  percentages subtly wrong; this evaluates the expression properly. It parses
+  with Python's `ast` and walks the tree by hand against a whitelist — never
+  `eval()`, which would be arbitrary code execution driven by model output.
+
+**A tool answer is only as good as what the model asks it.** A model may still
+state a figure it never computed — asked for `4871 × 3928 ÷ 7`, one model
+calculated the whole expression correctly and then invented the intermediate
+product in its prose. Every call is shown in the thread with its exact
+expression and result, so you can check what was actually computed against what
+was claimed. Expand the tool row when a number matters.
 
 **`search_chats` lets the model read any saved chat, not just the open one.** It
 only runs when you have Tools on and the model chooses to call it, every call is
