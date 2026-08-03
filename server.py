@@ -39,6 +39,10 @@ try:
 except ImportError:      # exotic build with no zoneinfo — local time still works
     ZoneInfo = None
 
+# The single source of truth for the version. build-app.sh reads this line to
+# stamp Info.plist, so the app bundle and the About panel cannot disagree.
+VERSION = "0.8.1"
+
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DATA = Path(os.environ.get("LANTERN_DATA") or os.environ.get("SLATE_DATA")
@@ -850,7 +854,8 @@ class Handler(BaseHTTPRequestHandler):
         # Cheap marker so a launcher can tell "Slate is already on this port"
         # apart from "something else owns this port".
         if parts == ["ping"] and method == "GET":
-            return self.json_out({"app": "lantern", "data_dir": str(DATA), "ollama": OLLAMA})
+            return self.json_out({"app": "lantern", "version": VERSION,
+                                  "data_dir": str(DATA), "ollama": OLLAMA})
 
         # ---- bootstrap ---------------------------------------------------
         if parts == ["bootstrap"] and method == "GET":
@@ -858,6 +863,7 @@ class Handler(BaseHTTPRequestHandler):
                 "settings": get_settings(),
                 "personas": get_personas(),
                 "chats": list_chats(),
+                "version": VERSION,
                 "tools": tool_catalog(),
                 "tool_round_limit": TOOL_ROUND_LIMIT,
                 "host": OLLAMA,
@@ -1266,6 +1272,28 @@ class Handler(BaseHTTPRequestHandler):
         self.end_stream()
 
 
+class Server(ThreadingHTTPServer):
+    """
+    A client hanging up is normal traffic, not a fault.
+
+    The webview drops keep-alive connections constantly, which raises
+    ConnectionResetError inside `handle_one_request` — *before* the request
+    reaches `route()`, so its own except clauses never see it. socketserver's
+    default `handle_error` then dumps a full traceback, and `lantern.log` fills
+    with stacks that make a perfectly healthy app look like it is crashing.
+    Anything that is not a disconnect still gets reported.
+    """
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError,
+                            ConnectionAbortedError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def watch_parent() -> None:
     """
     Exit if whoever launched us goes away.
@@ -1305,7 +1333,7 @@ def main() -> int:
         threading.Thread(target=watch_parent, daemon=True).start()
 
     try:
-        server = ThreadingHTTPServer((args.host, args.port), Handler)
+        server = Server((args.host, args.port), Handler)
     except OSError as exc:
         print(f"Cannot bind {args.host}:{args.port} - {exc}", file=sys.stderr)
         print("Try a different port:  python3 server.py --port 8888", file=sys.stderr)

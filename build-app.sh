@@ -10,7 +10,10 @@ cd "$(dirname "$0")"
 
 DEST="${1:-dist}"
 APP="$DEST/Lantern.app"
-VERSION="0.8.0"
+# server.py owns the version; read it rather than keeping a second copy that can
+# drift from what the app actually reports.
+VERSION="$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' server.py | head -1)"
+[ -n "$VERSION" ] || { echo "Cannot read VERSION from server.py" >&2; exit 1; }
 
 echo "==> Building $APP"
 rm -rf "$APP"

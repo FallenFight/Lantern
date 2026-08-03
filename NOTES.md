@@ -182,6 +182,20 @@ Resolving the chat later from `S.chat`/`liveChat` dropped writes for any chat
 that was neither on screen nor streaming. Page teardown uses `sendBeacon` to
 `POST /api/chats/{id}/save` — an async fetch cannot complete during unload.
 
+**`route()`'s except clauses do not cover every connection error.** A client
+hanging up mid-request raises `ConnectionResetError` inside
+`handle_one_request` — while reading the request line, *before* the handler runs —
+so socketserver's default `handle_error` printed a full traceback. The webview
+drops keep-alive connections constantly, so `lantern.log` filled with stacks that
+made a healthy app look like it was crashing. The `Server` subclass swallows
+disconnect errors only; everything else still gets reported. Verified: ten abrupt
+disconnects, zero tracebacks, server still serving.
+
+**`VERSION` in `server.py` is the single source of truth.** `build-app.sh` `sed`s
+it out to stamp `Info.plist`, and it is served by `/api/ping` and
+`/api/bootstrap` for the About panel. It used to live only in `build-app.sh`,
+which meant the shipped app could not tell you what version it was.
+
 **The server caches parsed chat files** keyed by `(mtime_ns, size)`.
 `list_chats()` and `search_chats()` walk every file and run on bootstrap, on
 every save, and on every search keystroke. ~7× faster warm.
@@ -361,6 +375,8 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] Settings: an accent, a theme, text size — each applies on the first click
 - [ ] Export markdown + JSON, and **back up everything**
 - [ ] `/usr/bin/python3 -m py_compile server.py`
+- [ ] **Check `lantern.log` is empty.** A shipped app writing tracebacks looks
+      broken even when it is fine — that is how the disconnect noise was found
 - [ ] Reload with a reply in flight; switch chats mid-reply
 
 Also run:
