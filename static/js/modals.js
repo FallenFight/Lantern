@@ -157,6 +157,10 @@ export function openSettings() {
     toggle(st.show_stats, (v) => { patchSettings({ show_stats: v }); emit('chat', {}); })));
   body.append(srow('Auto-expand thinking', 'Open the thought panel while the model reasons.',
     toggle(st.thinking_open, (v) => patchSettings({ thinking_open: v }))));
+  body.append(srow('Start new chats with tools on',
+    'Lets the model call Lantern\'s local tools without switching them on each time. '
+    + 'The schemas cost prompt tokens on every turn.',
+    toggle(st.tools_default, (v) => patchSettings({ tools_default: v }))));
 
   body.append(sectionTitle('Performance'));
   const ka = el('select', { class: 'inp', onchange: (e) => patchSettings({ keep_alive: e.target.value }) });
@@ -786,7 +790,7 @@ export function openModels() {
           model.supports_vision ? el('span', { class: 'tag vision', text: 'VISION' }) : null,
           model.supports_tools ? el('span', {
             class: 'tag tools', text: 'TOOLS',
-            title: 'The model supports tool calling. Lantern does not send tools yet.',
+            title: 'The model can call tools. Switch Tools on in the toolbar to offer it Lantern\'s.',
           }) : null,
           loaded ? el('span', {
             class: 'tag',

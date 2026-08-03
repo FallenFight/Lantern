@@ -47,16 +47,17 @@ Here's what I'd like to work on:
 
 Pick one and put it in the last line of the prompt.
 
-**1. Tool calling** — the highest-value next feature. Build in this order:
-- Tool registry + schema plumbing + a date tool *(shippable alone; the first
-  tool is ~60% of the work for all three)*
+**1. More tools** — step 1 shipped: the registry, the schema plumbing, the
+`current_datetime` tool, the Tools pill, and a 4-round cap. What's left:
 - Chat-history search — `search_chats()` already exists in `server.py`, so this
   is close to free
 - Calculator using `ast` with a node whitelist. **Never `eval()`** — that's
   arbitrary code execution driven by model output
 
-Only `qwen3.5-9b` of the installed models advertises tools, so test there and
-keep any manual-trigger path working for the gemmas.
+Adding a tool is now one entry in `TOOLS` in `server.py`; the UI, the loop and
+the round cap need no changes. All three installed models advertise tools via
+`/api/show` (`/api/tags` claims none of them do — see `NOTES.md`), and both qwen
+and gemma-4 have been seen calling one correctly.
 
 **2. Web search** — start with a URL reader (fetch a page, extract readable
 text, drop it into context). No key, no dependency, keeps the app offline until
