@@ -17,8 +17,11 @@ Environment:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
+import math
 import mimetypes
+import operator
 import os
 import re
 import secrets
@@ -41,7 +44,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -579,6 +582,134 @@ def _tool_current_datetime(args: dict) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------
+# calculator
+# --------------------------------------------------------------------------
+#
+# This evaluates a string the *model* wrote, so it is the one tool where a
+# mistake is arbitrary code execution. Three rules:
+#
+#   1. Never `eval()`, and never `compile()` the parsed tree either. The tree is
+#      walked by hand, so there is no path from input to the interpreter.
+#   2. Whitelist node types. Anything not listed — attributes, subscripts,
+#      lambdas, comprehensions, walrus — is refused by default, so a new Python
+#      syntax feature cannot quietly become reachable.
+#   3. Bound the work. Arbitrary-precision ints mean `9**9**9` is a hang, not an
+#      error, and deep nesting is a stack overflow. Both are capped below.
+
+_CALC_MAX_CHARS = 500
+_CALC_MAX_DEPTH = 25
+_CALC_MAX_EXPONENT = 256
+
+
+def _calc_pow(base, exponent):
+    # 9**9**9 never finishes and cannot be interrupted from here.
+    if abs(exponent) > _CALC_MAX_EXPONENT:
+        raise ValueError(f"exponent above {_CALC_MAX_EXPONENT} is not allowed")
+    if abs(base) > 1e6 and abs(exponent) > 32:
+        raise ValueError("that power is too large to compute")
+    return operator.pow(base, exponent)
+
+
+_CALC_BINOPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod, ast.Pow: _calc_pow,
+}
+_CALC_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_CALC_CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
+_CALC_FUNCTIONS = {
+    "sqrt": math.sqrt, "abs": abs, "round": round, "min": min, "max": max,
+    "floor": math.floor, "ceil": math.ceil, "exp": math.exp, "log": math.log,
+    "log2": math.log2, "log10": math.log10, "sin": math.sin, "cos": math.cos,
+    "tan": math.tan, "asin": math.asin, "acos": math.acos, "atan": math.atan,
+    "atan2": math.atan2, "hypot": math.hypot, "degrees": math.degrees,
+    "radians": math.radians,
+}
+
+
+def _calc_eval(node, depth=0):
+    """Evaluate one whitelisted node. Anything unexpected raises."""
+    if depth > _CALC_MAX_DEPTH:
+        raise ValueError("expression is nested too deeply")
+
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+            raise ValueError("only numbers are allowed")
+        return node.value
+
+    if isinstance(node, ast.BinOp):
+        handler = _CALC_BINOPS.get(type(node.op))
+        if handler is None:
+            raise ValueError(f"operator {type(node.op).__name__} is not allowed")
+        return handler(_calc_eval(node.left, depth + 1),
+                       _calc_eval(node.right, depth + 1))
+
+    if isinstance(node, ast.UnaryOp):
+        handler = _CALC_UNARYOPS.get(type(node.op))
+        if handler is None:
+            raise ValueError(f"operator {type(node.op).__name__} is not allowed")
+        return handler(_calc_eval(node.operand, depth + 1))
+
+    if isinstance(node, ast.Name):
+        if node.id in _CALC_CONSTANTS:
+            return _CALC_CONSTANTS[node.id]
+        raise ValueError(f"unknown name {node.id!r}")
+
+    if isinstance(node, ast.Call):
+        # Only a bare name may be called: no `foo.bar()`, no calling a result.
+        if not isinstance(node.func, ast.Name):
+            raise ValueError("only the built-in functions may be called")
+        if node.keywords:
+            raise ValueError("keyword arguments are not supported")
+        fn = _CALC_FUNCTIONS.get(node.func.id)
+        if fn is None:
+            raise ValueError(f"unknown function {node.func.id!r}")
+        if len(node.args) > 4:
+            raise ValueError("too many arguments")
+        return fn(*[_calc_eval(a, depth + 1) for a in node.args])
+
+    raise ValueError(f"{type(node).__name__} is not allowed here")
+
+
+def _tool_calculate(args: dict) -> dict:
+    expression = str(args.get("expression") or "").strip()
+    if not expression:
+        return {"error": "No expression given.", "_display": "empty expression"}
+    if len(expression) > _CALC_MAX_CHARS:
+        return {"error": f"Expression longer than {_CALC_MAX_CHARS} characters.",
+                "_display": "expression too long"}
+
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        return {"expression": expression, "error": f"Could not parse that: {exc.msg}.",
+                "_display": "syntax error"}
+
+    try:
+        value = _calc_eval(tree.body)
+    except ZeroDivisionError:
+        return {"expression": expression, "error": "Division by zero.",
+                "_display": "division by zero"}
+    except (ValueError, TypeError, OverflowError) as exc:
+        return {"expression": expression, "error": str(exc), "_display": "refused"}
+
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return {"expression": expression, "error": f"Result is {value}.",
+                    "_display": str(value)}
+        # Trim binary-float noise (0.1+0.2) without pretending to more precision
+        # than a float has.
+        rounded = round(value, 12)
+        if rounded == int(rounded) and abs(rounded) < 1e15:
+            value = int(rounded)
+        else:
+            value = rounded
+
+    return {"expression": expression, "result": value,
+            "_display": f"{expression} = {value}"}
+
+
 # Dropped from a fallback term search: common enough to match nearly every chat,
 # which would rank everything equally and defeat the point.
 _SEARCH_STOPWORDS = {
@@ -735,6 +866,40 @@ TOOLS = {
             },
         },
         "run": _tool_search_chats,
+    },
+    "calculate": {
+        "summary": "Evaluates arithmetic exactly, instead of guessing.",
+        "spec": {
+            "type": "function",
+            "function": {
+                "name": "calculate",
+                "description": (
+                    "Evaluate a arithmetic expression exactly. Use this for any "
+                    "calculation whose answer matters — models reliably get long "
+                    "multiplication, division and percentages subtly wrong. "
+                    "Supports + - * / // % **, parentheses, pi/e/tau, and sqrt, "
+                    "abs, round, min, max, floor, ceil, exp, log, log2, log10, "
+                    "sin, cos, tan, asin, acos, atan, atan2, hypot, degrees, "
+                    "radians. Angles are in radians. No variables or assignment: "
+                    "pass one self-contained expression such as "
+                    "'(1200 * 1.0825) / 12'. "
+                    "Call it once for every number you intend to state, including "
+                    "intermediate steps — do not work any of them out yourself. "
+                    "Only state figures this tool returned."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "expression": {
+                            "type": "string",
+                            "description": "The expression to evaluate, e.g. '17 * 43 + sqrt(2)'.",
+                        },
+                    },
+                    "required": ["expression"],
+                },
+            },
+        },
+        "run": _tool_calculate,
     },
 }
 
