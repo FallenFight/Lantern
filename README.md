@@ -144,10 +144,20 @@ level as plain on.
 
 ## Tools
 
-The **Tools** pill lets a model call into Lantern for facts it cannot know. One
-tool ships so far: `current_datetime`, which reads this machine's clock and
-converts to any IANA timezone. Ask for the time in Tokyo and you get the real
-answer, not a guess frozen at training time.
+The **Tools** pill lets a model call into Lantern for facts it cannot know. Two
+ship so far:
+
+- **`current_datetime`** — reads this machine's clock, in any IANA timezone. Ask
+  for the time in Tokyo and you get the real answer, not a guess frozen at
+  training time.
+- **`search_chats`** — full-text search across your saved conversations, so
+  "what did I conclude about X?" can be answered from what you actually said.
+  It returns titles, dates and short excerpts, never whole conversations.
+
+**`search_chats` lets the model read any saved chat, not just the open one.** It
+only runs when you have Tools on and the model chooses to call it, every call is
+visible in the thread with its exact arguments and results, and nothing leaves
+your machine — but it is worth knowing before you switch tools on.
 
 Off by default — the schemas cost prompt tokens on every turn. Turn it on per
 chat from the pill, or for every new chat in Settings → Behaviour. The caret

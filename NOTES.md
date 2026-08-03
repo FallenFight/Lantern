@@ -76,8 +76,32 @@ This is stated in the in-app guide. Don't try to "fix" it with detection.
 
 ## Tool calling
 
-Step 1 of three: the registry, the schema plumbing, and one `current_datetime`
-tool. Chat-history search and the calculator come next.
+Two tools ship: `current_datetime` and `search_chats`. A calculator over `ast`
+with a node whitelist is the remaining one. Adding a tool is one entry in
+`TOOLS` — the loop, the UI and the round cap need no changes.
+
+**`search_chats` needed different search semantics from the UI, and only an
+end-to-end model test showed it.** The tool reuses `search_chats()`, which
+matches the query as a **literal substring** — correct for ⌘⇧F, whose
+highlighting depends on exact spans. But models ask in phrases. Given "what did
+I conclude about ingress versus LoadBalancer", qwen searched
+`"ingress LoadBalancer conclusion decision comparison"`, got nothing, retried
+`"ingress LoadBalancer"`, got nothing, and told the user they had never discussed
+it — while "ingress" alone matched two chats. A human adapts after one miss; a
+model gives up and states a falsehood confidently.
+
+The fix lives in the **tool**, not in `search_chats()`: try the phrase first,
+then fall back to per-term search ranked by how many terms each chat hit, and
+report `matched_on` so the model knows it got term matches rather than the phrase
+it asked for. Stopwords are dropped or they would match everything and flatten
+the ranking. Output is capped hard — 8 chats, 2 excerpts, 200 characters each —
+because a tool result is replayed in the prompt on **every later turn**, so a
+generous result quietly eats the context window it was meant to help with.
+
+**Privacy shape worth keeping in mind:** this gives the model read access to
+every saved chat, not just the open one. It is gated on tools being on, every
+call is visible in the thread with its arguments, and nothing leaves the machine.
+Any future tool touching stored data should hold that line.
 
 **The same under-reporting trap as thinking, in the same direction.**
 `/api/tags` reports `["completion"]` for `qwen3.5-9b` and
@@ -474,9 +498,9 @@ Then, ranked by value, from the feature audit:
 1. **RAG / document ingestion** — no PDF, DOCX, chunking, or vector store. Text
    files are inlined verbatim as code fences.
 2. **Local embeddings** — `/api/embed` is never called.
-3. **More tools** — chat-history search (`search_chats()` already exists, so it is
-   close to free) and a calculator over `ast` with a node whitelist. **Never
-   `eval()`** — that is arbitrary code execution driven by model output.
+3. **A calculator tool** over `ast` with a node whitelist. **Never `eval()`** —
+   that is arbitrary code execution driven by model output. The last of the three
+   tools planned for 0.8/0.9.
 4. **Web search** — start with a URL reader: fetch a page, extract readable text,
    drop it into context. No key, no dependency, and it keeps the app offline
    until you paste a link. SearXNG on localhost later if you want real querying;
