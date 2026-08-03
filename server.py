@@ -41,7 +41,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "0.8.1"
+VERSION = "0.9.0"
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -579,6 +579,98 @@ def _tool_current_datetime(args: dict) -> dict:
     return out
 
 
+# Dropped from a fallback term search: common enough to match nearly every chat,
+# which would rank everything equally and defeat the point.
+_SEARCH_STOPWORDS = {
+    "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "at", "is", "was",
+    "it", "this", "that", "what", "when", "did", "do", "does", "my", "me", "we",
+    "you", "about", "with", "from", "have", "had", "how", "why", "any", "some",
+    "previously", "before", "conclusion", "conclude", "decided", "decision",
+}
+
+
+def _tool_search_chats(args: dict) -> dict:
+    """
+    Full-text search across saved conversations, reusing search_chats().
+
+    Kept deliberately small in its *output*: a tool result is replayed in the
+    prompt on every later turn of the conversation, so returning 60 chats with
+    four snippets each would quietly eat the context window it is meant to help
+    with. Hard caps: 8 chats, 2 snippets each, 200 characters per snippet.
+    """
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return {"error": "No query given. Pass the words to search for.",
+                "_display": "empty query"}
+
+    limit = args.get("limit")
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 5
+    limit = max(1, min(limit, 8))
+
+    # search_chats() matches the query as a literal substring, which is right for
+    # the ⌘⇧F UI (its highlighting depends on exact spans) but wrong for a model.
+    # Models ask in phrases — "ingress LoadBalancer comparison" — which never
+    # appear verbatim, so the tool reported "nothing found" for chats that plainly
+    # matched. Try the phrase first, then fall back to per-term search ranked by
+    # how many terms a chat hit. Verified: the phrase above found nothing and now
+    # finds both relevant chats.
+    matched_terms = None
+    hits = search_chats(query, limit=limit)
+    if not hits:
+        terms = [w for w in re.findall(r"[\w']+", query.lower())
+                 if len(w) > 1 and w not in _SEARCH_STOPWORDS][:6]
+        scored = {}
+        for term in terms:
+            for hit in search_chats(term):
+                entry = scored.setdefault(hit.get("id"),
+                                          {"hit": hit, "terms": set(), "matches": []})
+                entry["terms"].add(term)
+                entry["matches"].extend(hit.get("matches") or [])
+        ranked = sorted(scored.values(),
+                        key=lambda e: (-len(e["terms"]), -(e["hit"].get("updated") or 0)))
+        hits = []
+        for entry in ranked[:limit]:
+            hit = dict(entry["hit"])
+            hit["matches"] = entry["matches"]
+            hits.append(hit)
+        matched_terms = sorted({t for e in ranked[:limit] for t in e["terms"]})
+
+    results = []
+    for hit in hits:
+        when = hit.get("updated")
+        # search_chats() reports a title hit as a pseudo-message with role
+        # "title". The title is already the `chat` field, so keeping it would
+        # spend one of only two excerpt slots restating what we just said.
+        matches = [m for m in (hit.get("matches") or []) if m.get("role") != "title"]
+        results.append({
+            "chat": hit.get("title") or "Untitled",
+            "date": (datetime.fromtimestamp(when).strftime("%Y-%m-%d")
+                     if isinstance(when, (int, float)) else ""),
+            "matched_messages": len(matches),
+            "excerpts": [
+                {"role": m.get("role") or "", "text": str(m.get("snippet") or "")[:200]}
+                for m in matches[:2]
+            ],
+        })
+
+    out = {"query": query, "found": len(results), "results": results}
+    if matched_terms is not None:
+        # Say so explicitly: the model asked for a phrase and got term matches,
+        # and it should not claim the user said something they did not.
+        out["matched_on"] = matched_terms
+        out["note"] = ("The exact phrase was not found; these chats matched "
+                       "individual terms, best matches first.")
+    if not results:
+        out["note"] = ("Nothing matched. This searches saved message text only, "
+                       "so try different or fewer words.")
+    out["_display"] = (f"{len(results)} chat{'' if len(results) == 1 else 's'} matched"
+                       if results else "no matches")
+    return out
+
+
 TOOLS = {
     "current_datetime": {
         "summary": "Reads the clock on this machine.",
@@ -608,6 +700,41 @@ TOOLS = {
             },
         },
         "run": _tool_current_datetime,
+    },
+    "search_chats": {
+        "summary": "Searches the text of your saved conversations.",
+        "spec": {
+            "type": "function",
+            "function": {
+                "name": "search_chats",
+                "description": (
+                    "Full-text search across the user's own saved conversations in "
+                    "this app. Use it when the user refers to something discussed "
+                    "before — 'what did I say about X', 'find that chat where we', "
+                    "'remind me what we decided' — and the answer is not already in "
+                    "the current conversation. Returns matching chat titles, dates "
+                    "and short excerpts, not whole conversations."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Words to look for. Matches message text literally, "
+                                "so prefer distinctive terms over full sentences."
+                            ),
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "How many chats to return, 1-8. Defaults to 5.",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        "run": _tool_search_chats,
     },
 }
 
