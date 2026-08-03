@@ -377,6 +377,11 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] `/usr/bin/python3 -m py_compile server.py`
 - [ ] **Check `lantern.log` is empty.** A shipped app writing tracebacks looks
       broken even when it is fine — that is how the disconnect noise was found
+- [ ] **Docs pass.** Does `README.md` still describe what the app does? Does this
+      file have the new traps? Is anything in `CLAUDE.md` now untrue? Every
+      feature or major change owns its documentation — README has shipped wrong
+      three times (a stale model name, a line count off by 750, and a claim that
+      Lantern never sent tools, which stayed for a whole release after it did)
 - [ ] Reload with a reply in flight; switch chats mid-reply
 
 Also run:

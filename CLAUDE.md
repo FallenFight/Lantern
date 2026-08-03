@@ -36,6 +36,12 @@ They have gone missing twice.
   called it had never once been clicked.
 - Small, always-shippable increments: build, verify, install, then move on.
 - Say plainly when something didn't work, or is reasoned rather than observed.
+- **Every feature or major change includes a docs pass.** Re-read `README.md`,
+  `NOTES.md` and this file and update whatever the change made untrue — it is part
+  of the change, not follow-up work. `README.md` is a promise to users and has
+  been wrong before (a stale model name, a line count off by 750, a claim that
+  tools were never sent). If a change adds a trap or a rejected approach, it goes
+  in `NOTES.md` while the reasoning is still fresh.
 - Usage credits are a real constraint: fewer, better-targeted checks, not fewer
   verified claims.
 
