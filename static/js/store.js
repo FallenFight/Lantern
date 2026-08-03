@@ -14,6 +14,7 @@ export const S = {
   running: [],
   chats: [],           // summaries for the sidebar
   chat: null,          // the chat currently on screen
+  version: '',         // reported by the server, shown in Settings → About
   tools: [],           // registry from the server: [{name, description, summary}]
   toolRoundLimit: 4,   // server-advertised cap on tool rounds per reply
   ollamaOk: true,
@@ -192,6 +193,7 @@ export async function loadBootstrap() {
   S.chats = data.chats || [];
   S.models = data.models || [];
   S.running = data.running || [];
+  S.version = data.version || '';
   S.tools = data.tools || [];
   if (data.tool_round_limit) S.toolRoundLimit = data.tool_round_limit;
   S.ollamaOk = data.ollama_ok !== false;

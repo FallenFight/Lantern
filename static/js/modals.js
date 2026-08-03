@@ -206,6 +206,8 @@ export function openSettings() {
   body.append(paramFields(st.default_params, (patch) => patchSettings({ default_params: patch })));
 
   body.append(sectionTitle('About'));
+  body.append(srow('Version', 'A lean local chat interface for Ollama.',
+    el('span', { class: 'mono-sm', text: S.version ? `v${S.version}` : '—' })));
   body.append(srow('Ollama host', S.host, el('span', {
     class: 'mono-sm', text: S.ollamaOk ? 'connected' : 'unreachable' })));
   body.append(srow('Data folder', S.dataDir,
