@@ -17,9 +17,19 @@ See [`NOTES.md`](NOTES.md) for design decisions, rejected approaches, and traps.
 
 ---
 
-## Run it
+## Install
 
-You need [Ollama](https://ollama.com) and at least one model:
+**You build it yourself — there's no download, on purpose.** Signing a Mac app so
+macOS trusts it off the internet needs a paid Apple Developer account. Without
+one, a downloaded `.app` is quarantined and macOS calls it *"damaged"*, which is
+both alarming and wrong. Building locally skips that entirely, and it's one
+command.
+
+Requirements: **macOS 11 or later**, the Xcode command line tools
+(`xcode-select --install`) for the native window, and Python 3 — macOS already
+ships one, and `server.py` is kept compatible with it.
+
+You also need [Ollama](https://ollama.com) and at least one model:
 
 ```bash
 brew install ollama    # or download from ollama.com
