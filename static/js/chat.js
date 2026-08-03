@@ -4,6 +4,7 @@ import {
   S, emit, on, msgId, queueSaveChat, queueSaveFor, saveNow, currentModel, currentPersona,
   effectiveSystem, effectiveParams, effectiveThink, effectiveTools, modelInfo, newChat,
   noteThinkingObserved, isStreaming, beginRun, endRun, abortRun, thinkingSupported,
+  toolsSupported,
 } from './store.js';
 import { api, chatStream } from './api.js';
 import { renderMarkdown, wireCodeBlocks } from './markdown.js';
@@ -97,6 +98,7 @@ function updateEmptyState() {
   if (model) bits.push(shortModel(model));
   if (persona && persona.prompt) bits.push(`${persona.emoji} ${persona.name}`);
   if (info?.supports_vision) bits.push('vision');
+  if (info?.supports_tools) bits.push('tools');
   $('#empty-sub').textContent = bits.length
     ? bits.join('  ·  ')
     : 'Local chat over Ollama.';
@@ -121,6 +123,32 @@ function updateEmptyState() {
       },
     }, el('b', { text: label }), el('span', { text: prompt.split('\n')[0].slice(0, 62) })));
   }
+
+  // Tools default to off, and nothing on this screen said they existed — a new
+  // user had no way to discover the headline feature of 0.8. Offer it here, but
+  // only when the model can actually use it, and turn it on as part of asking so
+  // the answer is real rather than the model guessing at today's date.
+  const hint = $('#empty-tools');
+  if (!hint) return;
+  const offer = toolsSupported() && !S.chat?.tools;
+  hint.hidden = !offer;
+  if (!offer) return;
+  hint.textContent = '';
+  hint.append(
+    el('span', { html: svg(ICON.tool, 'ic ic-sm') }),
+    el('span', { text: 'This model can use tools. ' }),
+    el('button', {
+      class: 'link-btn',
+      text: 'Try "what time is it in Tokyo?"',
+      onclick: () => {
+        window.__lantern?.setTools?.(true);
+        const input = $('#input');
+        input.value = 'What time is it in Tokyo right now?';
+        input.focus();
+        autosize(input);
+      },
+    }),
+  );
 }
 
 function buildMessage(message, index) {
@@ -1034,6 +1062,7 @@ export function exportChat(format = 'md') {
 
 on('chat', () => renderThread(true));
 on('models', () => { if (!S.chat?.messages?.length) updateEmptyState(); updateFoot(); });
+on('tools-changed', () => { if (!S.chat?.messages?.length) updateEmptyState(); });
 on('streaming', (busy) => {
   $('#btn-send').hidden = busy;
   $('#btn-stop').hidden = !busy;

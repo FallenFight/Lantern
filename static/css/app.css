@@ -927,6 +927,19 @@ button { cursor: pointer; background: none; border: 0; }
 .starter:active { transform: translateY(-1px) scale(.99); }
 .starter b { display: block; font-weight: 620; color: var(--fg); margin-bottom: 2px; }
 
+/* Tools hint under the starters. Deliberately quieter than a starter card — it
+   is an offer, not a fifth suggestion. */
+.empty-tools {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin-top: 15px; font-size: .8rem; color: var(--fg-3);
+}
+.empty-tools .ic { opacity: .8; }
+.link-btn {
+  color: var(--accent); font-size: inherit; font-weight: 550;
+  border-bottom: 1px solid var(--accent-line); padding: 0;
+}
+.link-btn:hover { border-bottom-color: var(--accent); }
+
 .jump-btn {
   position: absolute; bottom: 124px; left: 50%; transform: translateX(-50%);
   width: 36px; height: 36px; display: grid; place-items: center; z-index: 12;

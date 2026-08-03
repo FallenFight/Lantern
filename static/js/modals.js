@@ -278,13 +278,15 @@ const GUIDE_SECTIONS = [
   {
     title: 'Limits — memory, length and repeatability',
     items: [
-      ['Context window (num_ctx)', 'tokens', 'default 8192',
+      ['Context window (num_ctx)', 'tokens', 'default 32768',
        'How much of the conversation the model can see at once: system prompt, '
        + 'every earlier message, and the reply being written. Past the limit the '
-       + 'oldest turns fall out of view. Costs memory roughly in proportion.',
-       'Worth setting per model. Several models here support far more than the '
-       + '8192 default — check the model picker, which shows each one\'s trained '
-       + 'context. The gauge under the composer estimates how full you are.'],
+       + 'oldest turns fall out of view. Costs memory roughly in proportion — '
+       + 'measured on a 9B model, about 34 MB per 1k tokens.',
+       'Worth setting per model. Most models here support far more than the '
+       + '32768 default — check the model picker, which shows each one\'s trained '
+       + 'context, or use Max. The gauge under the composer estimates how full '
+       + 'you are.'],
       ['Max output tokens (num_predict)', '-1 or n', 'default -1',
        'A ceiling on the length of one reply. -1 means no limit beyond the '
        + 'context window.',
@@ -414,8 +416,8 @@ function paramFields(params, onpatch) {
 
   const ctx = el('input', {
     class: 'inp', type: 'number', min: 512, max: 1048576, step: 512,
-    value: params.num_ctx ?? 8192,
-    onchange: (e) => onpatch({ num_ctx: parseInt(e.target.value, 10) || 8192 }),
+    value: params.num_ctx ?? 32768,
+    onchange: (e) => onpatch({ num_ctx: parseInt(e.target.value, 10) || 32768 }),
   });
   const trained = modelInfo(currentModel())?.context_length;
   const ctxCtl = el('div', { style: 'display:flex;gap:7px;align-items:center' }, ctx,
