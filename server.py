@@ -29,8 +29,15 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+try:
+    # stdlib from 3.9; reads the system tz database, so no tzdata package
+    from zoneinfo import ZoneInfo
+except ImportError:      # exotic build with no zoneinfo — local time still works
+    ZoneInfo = None
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -63,6 +70,10 @@ DEFAULT_SETTINGS = {
     "render_markdown": True,
     "thinking_open": False,       # auto-expand thinking blocks while streaming
     "sidebar_collapsed": False,
+    # Whether a new chat starts with tool calling on. Off by default: the tool
+    # schemas cost prompt tokens on every turn and some models reach for a tool
+    # when prose would do.
+    "tools_default": False,
     # How long Ollama keeps a model in memory after a reply. "" uses Ollama's
     # own default (5m). Longer avoids paying a full reload after a pause.
     "keep_alive": "",
@@ -334,6 +345,9 @@ def chat_summary(chat: dict) -> dict:
     messages = chat.get("messages") or []
     preview = ""
     for message in reversed(messages):
+        # A tool result is raw JSON — never the sidebar preview for a chat.
+        if message.get("role") == "tool":
+            continue
         if message.get("content"):
             preview = " ".join(str(message["content"]).split())[:180]
             break
@@ -508,6 +522,156 @@ def generate_title(model: str, transcript: str) -> str:
     if len(title) > 60:
         title = title[:60].rsplit(" ", 1)[0] + "…"
     return title
+
+
+# --------------------------------------------------------------------------
+# tools
+# --------------------------------------------------------------------------
+#
+# Tools run here, in this process, and only the ones in TOOLS can run at all.
+# The client sends *names*, never schemas (see tool_specs), so a bug or an
+# injected message in the front end cannot invent a callable. Each tool must be
+# read-only, fast, and offline: no shell, no filesystem writes, no network. The
+# execution loop lives in the client (chat.js) because it needs to stream each
+# round into the thread; the round cap is advertised from here so both ends
+# agree on it.
+
+TOOL_ROUND_LIMIT = 4          # tool-executing rounds per reply, then answer only
+
+
+def _tool_current_datetime(args: dict) -> dict:
+    """Read this machine's clock. Optionally in another IANA timezone."""
+    wanted = str(args.get("timezone") or "").strip()
+    now = datetime.now().astimezone()
+    note = ""
+    if wanted:
+        if ZoneInfo is None:
+            note = "No timezone database on this machine; answered in local time."
+        else:
+            try:
+                now = datetime.now(ZoneInfo(wanted))
+            except Exception:
+                note = f"Unknown timezone {wanted!r}; answered in local time instead."
+    label = wanted if wanted and not note else (now.tzname() or "local")
+    out = {
+        "iso": now.isoformat(timespec="seconds"),
+        "human": now.strftime("%A, %d %B %Y at %H:%M"),
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "weekday": now.strftime("%A"),
+        "timezone": label,
+        "utc_offset": now.strftime("%z"),
+        "unix": int(now.timestamp()),
+        # popped by run_tool: the one-line summary the UI shows on the tool row
+        "_display": f"{now.strftime('%a %d %b %Y, %H:%M')} ({label})",
+    }
+    if note:
+        out["note"] = note
+    return out
+
+
+TOOLS = {
+    "current_datetime": {
+        "summary": "Reads the clock on this machine.",
+        "spec": {
+            "type": "function",
+            "function": {
+                "name": "current_datetime",
+                "description": (
+                    "Get the current date and time. Call this whenever the answer "
+                    "depends on today's date, the current time, or the day of the "
+                    "week — your own sense of 'now' is frozen at training time and "
+                    "will be wrong."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "timezone": {
+                            "type": "string",
+                            "description": (
+                                "IANA timezone name such as Europe/London or "
+                                "Asia/Tokyo. Omit for this machine's local time."
+                            ),
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        "run": _tool_current_datetime,
+    },
+}
+
+
+def tool_catalog() -> list:
+    """What the UI needs to describe the tools it can switch on."""
+    out = []
+    for name, tool in TOOLS.items():
+        fn = tool["spec"]["function"]
+        out.append({
+            "name": name,
+            "description": fn.get("description") or "",
+            "summary": tool.get("summary") or "",
+            "parameters": fn.get("parameters") or {},
+        })
+    return out
+
+
+def tool_specs(names) -> list:
+    """
+    Resolve client-supplied tool names against the registry. Unknown names are
+    dropped rather than errored — the point is that the client proposes and the
+    server decides what the model is allowed to see.
+    """
+    specs = []
+    seen = set()
+    for name in (names if isinstance(names, list) else []):
+        if not isinstance(name, str) or name in seen or name not in TOOLS:
+            continue
+        seen.add(name)
+        specs.append(TOOLS[name]["spec"])
+        if len(specs) >= 32:
+            break
+    return specs
+
+
+def run_tool(name, arguments) -> dict:
+    """
+    Execute one registered tool.
+
+    Never raises. A failure comes back as text for the model to read, because a
+    model that is told what went wrong can correct itself on the next round,
+    whereas a 500 here would kill an otherwise fine reply.
+    """
+    started = time.time()
+    tool = TOOLS.get(name) if isinstance(name, str) else None
+    if not tool:
+        return {"ok": False, "name": str(name)[:80], "arguments": {},
+                "content": f"Error: no tool named {name!r} is available.",
+                "display": "unknown tool", "ms": 0}
+
+    # Declared parameters only. Models pass stray keys often enough that
+    # forwarding them into the implementation is not worth the surprise.
+    props = ((tool["spec"]["function"].get("parameters") or {}).get("properties") or {})
+    args = {}
+    if isinstance(arguments, dict):
+        for key, value in arguments.items():
+            if key in props:
+                args[key] = value
+
+    try:
+        result = tool["run"](args)
+    except Exception as exc:
+        return {"ok": False, "name": name, "arguments": args,
+                "content": f"Error: {type(exc).__name__}: {exc}",
+                "display": "failed", "ms": int((time.time() - started) * 1000)}
+
+    display = ""
+    if isinstance(result, dict):
+        display = str(result.pop("_display", "") or "")
+    return {"ok": True, "name": name, "arguments": args,
+            "content": json.dumps(result, ensure_ascii=False),
+            "display": display, "ms": int((time.time() - started) * 1000)}
 
 
 # --------------------------------------------------------------------------
@@ -694,6 +858,8 @@ class Handler(BaseHTTPRequestHandler):
                 "settings": get_settings(),
                 "personas": get_personas(),
                 "chats": list_chats(),
+                "tools": tool_catalog(),
+                "tool_round_limit": TOOL_ROUND_LIMIT,
                 "host": OLLAMA,
                 "data_dir": str(DATA),
             }
@@ -762,6 +928,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_out({"ok": True})
             except Exception as exc:
                 return self.fail(502, "Preload failed", str(exc))
+
+        # ---- tools -------------------------------------------------------
+        if parts == ["tools"] and method == "GET":
+            return self.json_out({"tools": tool_catalog(),
+                                  "round_limit": TOOL_ROUND_LIMIT})
+
+        if parts == ["tools", "call"] and method == "POST":
+            body = self.body_json()
+            return self.json_out(run_tool(body.get("name"), body.get("arguments")))
 
         # ---- chat streaming ----------------------------------------------
         if parts == ["chat"] and method == "POST":
@@ -903,6 +1078,7 @@ class Handler(BaseHTTPRequestHandler):
                     "persona_id": body.get("persona_id", settings.get("default_persona")),
                     "system_override": body.get("system_override"),
                     "think": body.get("think", False),
+                    "tools": bool(body.get("tools")),
                     "params": body.get("params") if isinstance(body.get("params"), dict) else {},
                     "messages": body.get("messages") if isinstance(body.get("messages"), list) else [],
                 }
@@ -923,7 +1099,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(404, "No such chat")
             body = self.body_json()
             for key in ("title", "pinned", "archived", "model", "persona_id",
-                        "system_override", "think", "params", "messages"):
+                        "system_override", "think", "tools", "params", "messages"):
                 if key in body:
                     chat[key] = body[key]
             save_chat(chat)
@@ -944,7 +1120,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(404, "No such chat")
                 body = self.body_json()
                 for key in ("title", "pinned", "archived", "model", "persona_id",
-                            "system_override", "think", "params", "messages"):
+                            "system_override", "think", "tools", "params", "messages"):
                     if key in body:
                         chat[key] = body[key]
                 return self.json_out(save_chat(chat))
@@ -992,6 +1168,13 @@ class Handler(BaseHTTPRequestHandler):
             payload["keep_alive"] = body["keep_alive"]
         if body.get("format"):
             payload["format"] = body["format"]
+
+        # The client asks for tools by name; the schema comes from our registry.
+        # Never accept a caller-supplied schema — that would let the front end
+        # describe callables the server has no implementation for.
+        specs = tool_specs(body.get("tools"))
+        if specs:
+            payload["tools"] = specs
 
         request = urllib.request.Request(
             OLLAMA + "/api/chat",

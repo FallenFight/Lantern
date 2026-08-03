@@ -37,13 +37,24 @@ const FAMILY = {
   java: 'java', sh: 'sh', sql: 'sql', css: 'css', ruby: 'ruby', php: 'php',
 };
 
+// Both of these are pure functions of the language, and renderThread()
+// re-highlights every code block in the conversation on every full render — so
+// a thread with 30 blocks was splitting keyword strings into 30 fresh Sets and
+// compiling 30 identical regexes each time. Built once per language instead.
+const KEYWORD_CACHE = new Map();
+const PATTERN_CACHE = new Map();
+
 function keywordSet(lang) {
+  if (KEYWORD_CACHE.has(lang)) return KEYWORD_CACHE.get(lang);
   const family = FAMILY[lang];
-  if (!family) return null;
   const extra = lang === 'ts'
     ? ' type namespace declare abstract readonly enum public private protected any unknown never string number boolean object symbol keyof infer satisfies'
     : '';
-  return new Set(((KEYWORDS[family] || '') + extra).split(/\s+/).filter(Boolean));
+  const set = family
+    ? new Set(((KEYWORDS[family] || '') + extra).split(/\s+/).filter(Boolean))
+    : null;
+  KEYWORD_CACHE.set(lang, set);
+  return set;
 }
 
 export function normalizeLang(raw) {
@@ -63,24 +74,13 @@ export function highlight(code, rawLang) {
   const keywords = keywordSet(lang);
   if (!keywords) return escapeHtml(code);
 
-  const lineComment = lang === 'py' || lang === 'sh' || lang === 'ruby'
-    ? '#' : (lang === 'sql' ? '--' : '//');
-  const blockComment = !['py', 'sh', 'ruby', 'sql'].includes(lang);
+  const pattern = tokenPattern(lang);
+  // Cached and /g, so it carries lastIndex. An exec loop that runs to null
+  // resets it, but a throw part-way through would not — start from a known
+  // position rather than trusting the last caller.
+  pattern.lastIndex = 0;
 
-  // One pass, ordered so that comments and strings win over everything else.
   const parts = [];
-  const pattern = new RegExp([
-    lang === 'py' ? String.raw`("""[\s\S]*?"""|'''[\s\S]*?''')` : '(\\u0000)',
-    blockComment ? String.raw`(/\*[\s\S]*?\*/)` : '(\\u0000)',
-    String.raw`(${lineComment.replace(/[/*+.]/g, '\\$&')}[^\n]*)`,
-    String.raw`("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\`(?:\\.|[^\\\`])*\`)`,
-    String.raw`\b(0[xXbBoO][0-9a-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)\b`,
-    String.raw`\b([A-Za-z_$][\w$]*)\s*(?=\()`,
-    String.raw`\b([A-Z][A-Za-z0-9_]*)\b`,
-    String.raw`\b([A-Za-z_$@#][\w$]*)\b`,
-    String.raw`([+\-*/%=<>!&|^~?:]+)`,
-  ].join('|'), 'g');
-
   let last = 0;
   let match;
   while ((match = pattern.exec(code)) !== null) {
@@ -103,6 +103,28 @@ export function highlight(code, rawLang) {
 }
 
 const span = (cls, text) => `<span class="tk-${cls}">${escapeHtml(text)}</span>`;
+
+/** One pass, ordered so that comments and strings win over everything else. */
+function tokenPattern(lang) {
+  const hit = PATTERN_CACHE.get(lang);
+  if (hit) return hit;
+  const lineComment = lang === 'py' || lang === 'sh' || lang === 'ruby'
+    ? '#' : (lang === 'sql' ? '--' : '//');
+  const blockComment = !['py', 'sh', 'ruby', 'sql'].includes(lang);
+  const pattern = new RegExp([
+    lang === 'py' ? String.raw`("""[\s\S]*?"""|'''[\s\S]*?''')` : '(\\u0000)',
+    blockComment ? String.raw`(/\*[\s\S]*?\*/)` : '(\\u0000)',
+    String.raw`(${lineComment.replace(/[/*+.]/g, '\\$&')}[^\n]*)`,
+    String.raw`("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\`(?:\\.|[^\\\`])*\`)`,
+    String.raw`\b(0[xXbBoO][0-9a-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?)\b`,
+    String.raw`\b([A-Za-z_$][\w$]*)\s*(?=\()`,
+    String.raw`\b([A-Z][A-Za-z0-9_]*)\b`,
+    String.raw`\b([A-Za-z_$@#][\w$]*)\b`,
+    String.raw`([+\-*/%=<>!&|^~?:]+)`,
+  ].join('|'), 'g');
+  PATTERN_CACHE.set(lang, pattern);
+  return pattern;
+}
 
 function highlightJson(code) {
   return escapeHtml(code)
@@ -558,9 +580,32 @@ function inline(src) {
   return text;
 }
 
+const codePoint = (n) => (Number.isFinite(n) && n >= 0 && n <= 0x10ffff
+  ? String.fromCodePoint(n) : '');
+
+/**
+ * Neutralise a URL out of model output.
+ *
+ * The scheme test has to run against what the *browser* will end up with, not
+ * against this text. `escapeHtml()` has already turned `&` into `&amp;`, so a
+ * link written as `[x](java&#9;script:alert(1))` reaches here looking innocent,
+ * fails a literal "javascript:" test, and goes into the href intact — where the
+ * HTML parser decodes `&#9;` to a tab and the URL parser *strips* ASCII tab and
+ * newline before deciding the scheme. `java<TAB>script:` becomes
+ * `javascript:` and runs in Lantern's own origin, which can read every chat.
+ *
+ * So: decode one level of character references and drop the characters a URL
+ * parser ignores, and test *that*. One level is the right depth — it is exactly
+ * what the HTML parser does, so `&amp;#9;` stays inert text on both sides.
+ */
 function safeUrl(url) {
   const decoded = url.replace(/&amp;/g, '&');
-  if (/^\s*(javascript|data|vbscript|file):/i.test(decoded)) return '#';
+  const probe = decoded
+    .replace(/&#x0*([0-9a-f]+);?/gi, (_, hex) => codePoint(parseInt(hex, 16)))
+    .replace(/&#0*(\d+);?/g, (_, dec) => codePoint(Number(dec)))
+    .replace(/&(tab|newline);/gi, '\t')
+    .split('').filter((c) => c.charCodeAt(0) > 0x20).join('');
+  if (/^(javascript|data|vbscript|file):/i.test(probe)) return '#';
   return decoded.replace(/"/g, '%22');
 }
 

@@ -45,6 +45,11 @@ export const api = {
   deleteChat: (id) => request(`/api/chats/${id}`, { method: 'DELETE' }),
   searchChats: (q) => request(`/api/chats/search?q=${encodeURIComponent(q)}`),
 
+  tools: () => request('/api/tools'),
+  // The server owns the registry; we only name the tool we want run.
+  callTool: (name, args, signal) =>
+    request('/api/tools/call', { method: 'POST', body: { name, arguments: args }, signal }),
+
   backup: () => request('/api/backup'),
   restore: (payload) => request('/api/restore', { method: 'POST', body: payload }),
 

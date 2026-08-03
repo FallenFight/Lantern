@@ -2,7 +2,7 @@
 
 import {
   S, emit, on, msgId, queueSaveChat, queueSaveFor, saveNow, currentModel, currentPersona,
-  effectiveSystem, effectiveParams, effectiveThink, modelInfo, newChat,
+  effectiveSystem, effectiveParams, effectiveThink, effectiveTools, modelInfo, newChat,
   noteThinkingObserved, isStreaming, beginRun, endRun, abortRun, thinkingSupported,
 } from './store.js';
 import { api, chatStream } from './api.js';
@@ -46,6 +46,49 @@ export function renderThread(force = false) {
   if (force || stickToBottom) scrollToBottom(true);
 }
 
+/**
+ * Append messages the DOM doesn't have yet instead of rebuilding the thread.
+ *
+ * renderThread() is O(thread) and re-runs wireCodeBlocks over every code block
+ * in the conversation. A tool round adds messages two or three times per reply,
+ * which would pay that cost each time on a long chat. Falls back to a full
+ * render whenever the DOM is not exactly the messages before `from` — the
+ * append path is an optimisation, never the thing correctness rests on, and
+ * runAssistant does a full render when the turn ends regardless.
+ */
+function appendMessagesFrom(chat, from) {
+  const thread = threadBox();
+  const messages = chat.messages || [];
+  if (!thread || from <= 0 || thread.children.length !== from) {
+    renderThread();
+    return;
+  }
+  for (let i = from; i < messages.length; i++) {
+    const node = buildMessage(messages[i], i);
+    thread.append(node);
+    wireCodeBlocks(node);
+  }
+  updateFoot();
+  if (stickToBottom) scrollToBottom(true);
+}
+
+/**
+ * Rebuild one message node whose *shape* changed rather than its text — an
+ * assistant turn that turns out to be a tool call loses its bubble and its
+ * header, which the streaming painter cannot express.
+ */
+function replaceMessageNode(chat, index) {
+  const thread = threadBox();
+  const message = chat.messages?.[index];
+  const old = thread?.children[index];
+  // Only touch it when the DOM really is this message; the full render at the
+  // end of the turn is what guarantees correctness.
+  if (!message || !old || old.dataset.id !== message.id) return;
+  const node = buildMessage(message, index);
+  thread.replaceChild(node, old);
+  wireCodeBlocks(node);
+}
+
 function updateEmptyState() {
   const persona = currentPersona();
   const model = currentModel();
@@ -81,14 +124,20 @@ function updateEmptyState() {
 }
 
 function buildMessage(message, index) {
+  if (message.role === 'tool') return buildToolMessage(message, index);
   const isUser = message.role === 'user';
   const wrap = el('div', {
     class: `msg msg-${message.role}`,
     dataset: { id: message.id, index: String(index) },
   });
 
-  if (!isUser) {
-    const info = modelInfo(message.model);
+  // A turn that only called a tool has no prose of its own. The tool rows that
+  // follow it carry the detail, so a bubble here would just be an empty box —
+  // and a second "Assistant" header above the answer that follows.
+  const silentToolTurn = !isUser && !message.content && !message.error
+    && !message.pending && !!message.tool_calls?.length;
+
+  if (!isUser && !(silentToolTurn && !message.thinking)) {
     wrap.append(el('div', { class: 'msg-head' },
       el('span', { text: 'Assistant' }),
       message.model ? el('span', { class: 'mh-model', text: shortModel(message.model) }) : null,
@@ -108,29 +157,85 @@ function buildMessage(message, index) {
     wrap.append(buildThinkBox(message));
   }
 
-  const bubble = el('div', { class: 'bubble' });
-  if (isUser) {
-    bubble.textContent = message.content || '';
-  } else if (message.error) {
-    bubble.append(el('div', { class: 'msg-err' },
-      el('div', { text: message.error }),
-      el('button', {
-        class: 'btn btn-ghost', style: 'margin-top:9px',
-        html: `${svg(ICON.redo, 'ic')}<span>Retry</span>`,
-        onclick: () => regenerate(index),
-      })));
-  } else if (!message.content && message.pending) {
-    bubble.append(el('div', { class: 'dots' }, el('i'), el('i'), el('i')));
-  } else {
-    const body = el('div', { class: 'md' });
-    body.innerHTML = S.settings?.render_markdown === false
-      ? `<p>${escapeHtml(message.content || '')}</p>`
-      : renderMarkdown(message.content || '');
-    bubble.append(body);
+  if (!silentToolTurn) {
+    const bubble = el('div', { class: 'bubble' });
+    if (isUser) {
+      bubble.textContent = message.content || '';
+    } else if (message.error) {
+      bubble.append(el('div', { class: 'msg-err' },
+        el('div', { text: message.error }),
+        el('button', {
+          class: 'btn btn-ghost', style: 'margin-top:9px',
+          html: `${svg(ICON.redo, 'ic')}<span>Retry</span>`,
+          onclick: () => regenerate(index),
+        })));
+    } else if (!message.content && message.pending) {
+      bubble.append(el('div', { class: 'dots' }, el('i'), el('i'), el('i')));
+    } else {
+      const body = el('div', { class: 'md' });
+      body.innerHTML = S.settings?.render_markdown === false
+        ? `<p>${escapeHtml(message.content || '')}</p>`
+        : renderMarkdown(message.content || '');
+      bubble.append(body);
+    }
+    wrap.append(bubble);
   }
-  wrap.append(bubble);
+  if (message.toolLimit) {
+    // A model denied a tool it still wants often writes the call out as prose
+    // (qwen emits a literal <tool_call> block). Mangling the reply to hide that
+    // would be worse than explaining it, so say what the text is.
+    const leaked = /<\|?tool_call|\[TOOL_CALL/i.test(message.content || '');
+    wrap.append(el('div', { class: 'tool-note', text:
+      `Reached the ${S.toolRoundLimit}-round tool limit, so this reply was written with no tools offered.`
+      + (leaked ? ' Any tool-call syntax above is literal text — nothing further was run.' : '') }));
+  }
   wrap.append(buildActions(message, index));
   return wrap;
+}
+
+/**
+ * One tool result: what was called, with what, and what came back.
+ *
+ * Collapsed by default — the point of the row is that you *can* audit the call,
+ * not that you have to read JSON to follow the conversation.
+ */
+function buildToolMessage(message, index) {
+  const wrap = el('div', {
+    class: 'msg msg-tool',
+    dataset: { id: message.id, index: String(index) },
+  });
+  const ok = message.ok !== false;
+  const box = el('div', { class: `tool-box${ok ? '' : ' bad'}` });
+  const head = el('button', { class: 'tool-head' },
+    el('span', { class: 'caret', html: svg(ICON.caret, 'ic ic-sm') }),
+    el('span', { html: svg(ICON.tool, 'ic ic-sm') }),
+    el('span', { class: 'tool-name', text: message.tool_name || 'tool' }),
+    el('span', { class: 'tool-display', text: message.display || (ok ? '' : 'failed') }),
+    el('span', { class: 'dur', text: message.ms != null ? formatMs(message.ms) : '' }),
+  );
+  head.addEventListener('click', () => box.classList.toggle('open'));
+
+  const body = el('div', { class: 'tool-body' });
+  const args = message.arguments && Object.keys(message.arguments).length
+    ? JSON.stringify(message.arguments, null, 1) : 'none';
+  body.append(
+    el('div', { class: 'tool-sub', text: 'Arguments' }),
+    el('pre', { text: args }),
+    el('div', { class: 'tool-sub', text: ok ? 'Returned' : 'Error' }),
+    el('pre', { text: prettyJson(message.content || '') }),
+  );
+  box.append(head, body);
+  wrap.append(box);
+  return wrap;
+}
+
+/** Tool results are JSON strings; show them indented when they parse. */
+function prettyJson(text) {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 1);
+  } catch {
+    return text;
+  }
 }
 
 function buildThinkBox(message) {
@@ -170,7 +275,9 @@ function buildActions(message, index) {
       el('span', { html: svg(icon, 'ic') }), label ? el('span', { text: label }) : null));
   };
 
-  add(ICON.copy, '', 'Copy message', async (event) => {
+  // A turn that only called a tool has nothing to copy; the button would toast
+  // "Copied" over an empty clipboard.
+  if (message.content) add(ICON.copy, '', 'Copy message', async (event) => {
     const ok = await copyText(message.content || '');
     const button = event.currentTarget;
     button.innerHTML = svg(ICON.check, 'ic');
@@ -312,18 +419,34 @@ async function deleteMessage(index) {
     toast('Wait for the reply to finish', 'bad');
     return;
   }
-  chat.messages.splice(index, 1);
+  chat.messages.splice(index, 1 + toolTail(chat.messages, index));
   await queueSaveFor(chat, true);
   renderThread();
 }
 
+/**
+ * How many `tool` messages sit directly under the call at `index`.
+ *
+ * A tool result belongs to the call above it, so anything that cuts the history
+ * at a turn has to keep the pair together — otherwise the next request either
+ * replays an answer to a call the model never made, or a call with no answer.
+ */
+function toolTail(messages, index) {
+  if (!messages[index]?.tool_calls?.length) return 0;
+  let n = 0;
+  while (messages[index + 1 + n]?.role === 'tool') n += 1;
+  return n;
+}
+
 async function branchFrom(index) {
   const source = S.chat;
-  const slice = source.messages.slice(0, index + 1).map((m) => ({ ...m }));
+  const end = index + 1 + toolTail(source.messages, index);
+  const slice = source.messages.slice(0, end).map((m) => ({ ...m }));
   const chat = await newChat({ model: source.model, personaId: source.persona_id, focus: false });
   chat.messages = slice;
   chat.title = `${source.title || 'Chat'} ↗`;
   chat.think = source.think;
+  chat.tools = !!source.tools;
   chat.params = { ...source.params };
   chat.system_override = source.system_override;
   await queueSaveChat(true);
@@ -376,14 +499,97 @@ function buildPayloadMessages(chat) {
   if (system && system.trim()) messages.push({ role: 'system', content: system });
   for (const message of chat.messages) {
     if (message.error && !message.content) continue;
-    if (message.role === 'assistant' && !message.content) continue;
+    if (message.role === 'tool') {
+      // One message per call, named so the model can pair it with the call it
+      // made. Ollama's chat templates key on tool_name, not on a call id.
+      messages.push({
+        role: 'tool',
+        tool_name: message.tool_name || '',
+        content: message.content || '',
+      });
+      continue;
+    }
+    // An assistant turn that only called a tool has no content, but it must
+    // still be replayed or the tool result under it answers nothing.
+    if (message.role === 'assistant' && !message.content && !message.tool_calls?.length) continue;
     const out = { role: message.role, content: message.content || '' };
     if (message.images?.length) out.images = message.images;
+    if (message.tool_calls?.length) out.tool_calls = message.tool_calls;
     messages.push(out);
   }
   return messages;
 }
 
+/**
+ * Run every tool call from one assistant turn and append a `tool` message for
+ * each result.
+ *
+ * Returns the calls that actually produced a result. Only those are recorded on
+ * the assistant message, so history can never contain a call with no answer
+ * under it — which is what an aborted round would otherwise leave behind.
+ */
+async function runToolCalls(chat, calls, signal) {
+  const done = [];
+  for (const call of calls) {
+    const fn = call.function || {};
+    const name = fn.name || '';
+    const args = (fn.arguments && typeof fn.arguments === 'object') ? fn.arguments : {};
+    let result;
+    try {
+      result = await api.callTool(name, args, signal);
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      // Reaching our own server failed, which the model can still act on.
+      result = {
+        ok: false, name, arguments: args, ms: null,
+        content: `Error: the tool could not be run (${err.message}).`,
+        display: 'could not run',
+      };
+    }
+    chat.messages.push({
+      id: msgId(),
+      role: 'tool',
+      tool_name: result.name || name,
+      content: result.content || '',
+      arguments: result.arguments || args,
+      display: result.display || '',
+      ok: result.ok !== false,
+      ms: result.ms,
+      ts: Date.now() / 1000,
+    });
+    done.push(call);
+  }
+  return done;
+}
+
+/** No model gets to fire an unbounded number of tools in a single turn. */
+const MAX_CALLS_PER_ROUND = 8;
+
+/**
+ * Ollama sends tool calls whole, on the final chunk. Merging by index anyway
+ * means a model that emits them piecemeal still ends up with one entry per call
+ * rather than one per fragment.
+ */
+function mergeToolCalls(into, incoming) {
+  for (const call of incoming) {
+    if (!call || typeof call !== 'object') continue;
+    const index = (call.function || {}).index;
+    const at = index == null ? -1
+      : into.findIndex((c) => (c.function || {}).index === index);
+    if (at >= 0) into[at] = call;
+    else into.push(call);
+  }
+}
+
+/**
+ * Generate a reply, running any tools the model asks for and feeding the results
+ * back until it answers in prose.
+ *
+ * Each round is its own assistant message with its own stats, so the thread
+ * shows what was called and how long each leg took. The cap is on *rounds*, not
+ * on total calls: past it we ask once more with no tools attached, which makes
+ * the model answer from what it already has instead of leaving the turn dead.
+ */
 export async function runAssistant(chat = S.chat) {
   if (!chat || isStreaming(chat.id)) return;
   const model = currentModel(chat);
@@ -394,42 +600,54 @@ export async function runAssistant(chat = S.chat) {
   const visible = () => S.chat?.id === chat.id;
 
   const persona = currentPersona(chat);
-  const placeholder = {
-    id: msgId(),
-    role: 'assistant',
-    content: '',
-    thinking: '',
-    ts: Date.now() / 1000,
-    model,
-    persona_name: persona && persona.prompt ? persona.name : null,
-    pending: true,
-  };
   const think = effectiveThink(chat);
-  if (think) placeholder.thinkingPending = true;
-
-  chat.messages.push(placeholder);
-  if (visible()) renderThread();
+  const toolNames = effectiveTools(chat);
 
   const abort = new AbortController();
-  beginRun(chat, placeholder.id, abort);
+  let placeholder = null;
+  let painter = { stop() {}, body() {}, think() {}, finishThink() {} };
+  let rounds = 0;
 
-  const painter = makePainter(chat, placeholder);
-  const started = performance.now();
-  let firstTokenAt = null;      // real TTFT: request sent -> first output of any kind
-  let firstThinkAt = null;
-  let lastThinkAt = null;
-  let stats = null;
-  let sawContent = false;
+  /** One request and its stream. Returns the tool calls the model asked for. */
+  async function streamRound(withTools) {
+    painter.stop();
+    placeholder = {
+      id: msgId(),
+      role: 'assistant',
+      content: '',
+      thinking: '',
+      ts: Date.now() / 1000,
+      model,
+      persona_name: persona && persona.prompt ? persona.name : null,
+      pending: true,
+    };
+    if (think) placeholder.thinkingPending = true;
 
-  try {
     const body = {
       model,
-      messages: buildPayloadMessages(chat),
+      messages: buildPayloadMessages(chat),   // built before the placeholder is pushed
       options: effectiveParams(chat),
     };
     if (S.settings?.keep_alive) body.keep_alive = S.settings.keep_alive;
     // null means "don't send the field at all" — see effectiveThink().
     if (think !== null) body.think = think;
+    // Names only. server.py resolves them against its own registry, so the
+    // front end can never describe a callable the server cannot run.
+    if (withTools) body.tools = toolNames;
+
+    chat.messages.push(placeholder);
+    if (visible()) appendMessagesFrom(chat, chat.messages.length - 1);
+    if (rounds === 0) beginRun(chat, placeholder.id, abort);
+    painter = makePainter(chat, placeholder);
+    rounds += 1;
+
+    const started = performance.now();
+    let firstTokenAt = null;      // real TTFT: request sent -> first output of any kind
+    let firstThinkAt = null;
+    let lastThinkAt = null;
+    let stats = null;
+    let sawContent = false;
+    const calls = [];
 
     for await (const chunk of chatStream(body, abort.signal)) {
       if (chunk.error) throw new Error(chunk.error);
@@ -469,6 +687,7 @@ export async function runAssistant(chat = S.chat) {
         placeholder.content += part.content;
         painter.body();
       }
+      if (part.tool_calls?.length) mergeToolCalls(calls, part.tool_calls);
       if (chunk.done) {
         stats = {
           eval_count: chunk.eval_count,
@@ -488,20 +707,67 @@ export async function runAssistant(chat = S.chat) {
         ? Math.round((lastThinkAt || performance.now()) - firstThinkAt) : 0;
     }
     placeholder.stats = stats || { total_duration: (performance.now() - started) * 1e6 };
+    // A turn that only called a tool is not empty — the tool rows under it are
+    // the content. But a turn of nothing *but* calls we are not going to run
+    // would render as a blank bubble, so say what happened instead.
     if (!placeholder.content && !placeholder.thinking) {
-      placeholder.error = 'The model returned an empty response.';
+      if (!calls.length) {
+        placeholder.error = 'The model returned an empty response.';
+      } else if (!withTools) {
+        placeholder.error = toolNames.length
+          ? `The model asked for another tool after the ${S.toolRoundLimit}-round limit, `
+            + 'and wrote no answer of its own.'
+          : 'The model tried to call a tool, but tools are off for this chat.';
+      }
+    }
+    return calls.slice(0, MAX_CALLS_PER_ROUND);
+  }
+
+  try {
+    let capped = false;      // the previous round wanted tools we would not run
+    for (;;) {
+      const withTools = toolNames.length > 0 && rounds < S.toolRoundLimit;
+      const calls = await streamRound(withTools);
+      if (capped) placeholder.toolLimit = true;
+      if (!calls.length || !withTools) break;
+
+      const firstResult = chat.messages.length;
+      const executed = await runToolCalls(chat, calls, abort.signal);
+      // Record only the calls that produced a result, so history never holds a
+      // call with nothing under it.
+      if (executed.length) placeholder.tool_calls = executed;
+      if (visible()) {
+        // The assistant turn above just lost its bubble (it is a silent tool
+        // turn now), so rebuild that one node and append the results.
+        replaceMessageNode(chat, chat.messages.indexOf(placeholder));
+        appendMessagesFrom(chat, firstResult);
+      } else {
+        emit('chats');
+      }
+      // Debounced, not immediate: the turn saves in full when it ends, and an
+      // immediate write here means a complete rewrite of the chat per round.
+      queueSaveFor(chat);
+      if (!executed.length) break;
+      capped = rounds >= S.toolRoundLimit;
     }
   } catch (err) {
-    placeholder.pending = false;
-    placeholder.thinkingPending = false;
+    if (placeholder) {
+      placeholder.pending = false;
+      placeholder.thinkingPending = false;
+    }
     if (err.name === 'AbortError') {
-      placeholder.stopped = true;
-      if (!placeholder.content && !placeholder.thinking) {
-        // splice in place — other code holds a reference to this array
+      if (placeholder) {
+        placeholder.stopped = true;
         const at = chat.messages.indexOf(placeholder);
-        if (at >= 0) chat.messages.splice(at, 1);
+        // Stopped part-way through executing tools: drop the results whose call
+        // was never recorded, or history answers a question it doesn't contain.
+        if (at >= 0 && !placeholder.tool_calls?.length) chat.messages.length = at + 1;
+        if (!placeholder.content && !placeholder.thinking) {
+          // splice in place — other code holds a reference to this array
+          if (at >= 0) chat.messages.splice(at, 1);
+        }
       }
-    } else {
+    } else if (placeholder) {
       placeholder.error = err.hint ? `${err.message} — ${err.hint}` : err.message;
       console.error(err);
     }
@@ -647,7 +913,8 @@ function updateLiveStats(message) {
 async function maybeAutoTitle(chat) {
   if (!S.settings?.auto_title || !chat) return;
   if (chat.title && chat.title !== 'New chat') return;
-  const messages = chat.messages.filter((m) => m.content);
+  // Tool results are JSON and say nothing about what the chat is about.
+  const messages = chat.messages.filter((m) => m.content && m.role !== 'tool');
   if (messages.length < 2) return;
 
   // Fall back to a trimmed first line if the model can't produce a title.
@@ -742,6 +1009,17 @@ export function exportChat(format = 'md') {
   if (system) lines.push('', '## System prompt', '', '```', system, '```');
   lines.push('', '---', '');
   for (const message of chat.messages) {
+    if (message.role === 'tool') {
+      lines.push(`### Tool · ${message.tool_name || 'tool'}`, '',
+        '```json', message.content || '', '```', '');
+      continue;
+    }
+    if (!message.content && message.tool_calls?.length) {
+      const named = message.tool_calls
+        .map((c) => (c.function || {}).name).filter(Boolean).join(', ');
+      lines.push(`## Assistant`, '', `_Called: ${named}_`, '');
+      continue;
+    }
     lines.push(`## ${message.role === 'user' ? 'You' : 'Assistant'}`, '');
     if (message.thinking) {
       lines.push('<details><summary>Thinking</summary>', '', '```', message.thinking, '```', '', '</details>', '');

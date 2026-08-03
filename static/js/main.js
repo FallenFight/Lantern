@@ -3,7 +3,7 @@
 import {
   S, on, emit, loadBootstrap, refreshModels, refreshChatList, patchSettings,
   newChat, openChat, removeChat, queueSaveChat, flushChat, flushBeacon,
-  currentModel, currentPersona, thinkingSupported, visionSupported,
+  currentModel, currentPersona, thinkingSupported, visionSupported, toolsSupported,
   isStreaming, anyStreaming, thinkingAdvertised,
 } from './store.js';
 import { api } from './api.js';
@@ -181,6 +181,19 @@ function renderTopbar() {
     $('#think-caret').title = 'Reasoning effort';
   }
 
+  const toolsBtn = $('#tools-toggle');
+  const canTool = toolsSupported();
+  $('#tools-wrap').hidden = !canTool;
+  if (canTool) {
+    const on = !!S.chat?.tools;
+    toolsBtn.classList.toggle('on', on);
+    const count = S.tools.length;
+    $('#tools-label').textContent = on ? `Tools · ${count}` : 'Tools';
+    toolsBtn.title = on
+      ? `${count} tool${count === 1 ? '' : 's'} offered to the model — click to turn off`
+      : 'Tool calling off — click to let the model call Lantern\'s tools';
+  }
+
   const dot = $('#status-dot');
   dot.className = `status-dot ${anyStreaming() ? 'busy' : (S.ollamaOk ? 'ok' : 'bad')}`;
   dot.title = S.ollamaOk ? `Ollama connected · ${S.host}` : `Cannot reach ${S.host}`;
@@ -265,9 +278,7 @@ function capabilityTags(model) {
   if (thinkingAdvertised(model.name)) tags.push(['THINK', 'think']);
   else if (thinkingSupported(model.name)) tags.push(['THINK*', 'think']);
   if (model.supports_vision) tags.push(['VISION', 'vision']);
-  // TOOLS is deliberately not shown here: Lantern never sends a tools array,
-  // so a chip in the picker would imply a capability the app does not use.
-  // The Models panel shows it with a tooltip that says so.
+  if (model.supports_tools) tags.push(['TOOLS', 'tools']);
   return tags;
 }
 
@@ -369,6 +380,53 @@ function toggleThink() {
   setThink(!S.chat?.think);
 }
 
+/* tools ------------------------------------------------------------ */
+
+function setTools(value) {
+  if (!S.chat) return;
+  S.chat.tools = !!value;
+  queueSaveChat();
+  renderTopbar();
+  toast(`Tools ${value ? 'on' : 'off'}`);
+}
+
+function toggleTools() {
+  if (!toolsSupported()) {
+    toast(`${shortModel(currentModel())} does not advertise tool calling`, 'bad');
+    return;
+  }
+  setTools(!S.chat?.tools);
+}
+
+/** What the model may call, and the honest caveats. */
+function openToolsMenu() {
+  showMenu($('#tools-menu'), (menu) => {
+    menu.append(el('div', { class: 'menu-label', text: 'Tool calling' }));
+    menu.append(menuItem({
+      title: 'Off', sub: 'No tools sent with the request',
+      on: !S.chat?.tools,
+      run: () => setTools(false),
+    }));
+    menu.append(menuItem({
+      title: 'On', sub: 'The model may call any tool below',
+      on: !!S.chat?.tools,
+      run: () => setTools(true),
+    }));
+    menu.append(el('div', { class: 'menu-sep' }));
+    menu.append(el('div', { class: 'menu-label', text: 'Available' }));
+    for (const tool of S.tools) {
+      menu.append(el('div', { class: 'menu-static' },
+        el('span', { class: 'mi-body' },
+          el('span', { class: 'mi-title', text: tool.name }),
+          el('span', { class: 'mi-sub', text: tool.summary || tool.description }))));
+    }
+    menu.append(el('div', { class: 'menu-sep' }));
+    menu.append(el('div', { class: 'menu-note',
+      text: `Tools run on this machine, read-only, with no network access. At most `
+        + `${S.toolRoundLimit} rounds of calls per reply — after that the model has to answer.` }));
+  });
+}
+
 function openChatMenuFor(chat, event) {
   const target = chat || S.chat;
   if (!target) return;
@@ -409,6 +467,7 @@ function openChatMenuFor(chat, event) {
         copy.messages = source.messages.map((m) => ({ ...m }));
         copy.title = `${source.title || 'Chat'} (copy)`;
         copy.think = source.think;
+        copy.tools = !!source.tools;
         copy.params = { ...source.params };
         copy.system_override = source.system_override;
         await queueSaveChat(true);
@@ -733,11 +792,19 @@ function runFind(query) {
   if (needle.length < 1) { countEl.textContent = ''; return; }
 
   // Walk text nodes so the markdown DOM is preserved; skip anything inside a
-  // <script> (the code blocks stash their raw source there for copying).
+  // <script> (the code blocks stash their raw source there for copying) and
+  // anything inside a *collapsed* thinking or tool panel. Those are
+  // display:none, so marking them inflates the hit count and ⏎ steps to a
+  // highlight nobody can see.
   const walker = document.createTreeWalker($('#thread'), NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => (node.parentElement.closest('script')
-      || !node.nodeValue.toLowerCase().includes(needle))
-      ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    acceptNode: (node) => {
+      if (!node.nodeValue.toLowerCase().includes(needle)) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent || parent.closest('script')) return NodeFilter.FILTER_REJECT;
+      const panel = parent.closest('.think-box, .tool-box');
+      if (panel && !panel.classList.contains('open')) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
   });
   const targets = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) targets.push(n);
@@ -869,6 +936,9 @@ function setupCommands() {
     { title: 'Thinking: low', keywords: 'think effort', when: () => thinkingSupported(), run: () => setThink('low') },
     { title: 'Thinking: medium', keywords: 'think effort', when: () => thinkingSupported(), run: () => setThink('medium') },
     { title: 'Thinking: high', keywords: 'think effort', when: () => thinkingSupported(), run: () => setThink('high') },
+    { title: 'Toggle tools', keywords: 'tool calling function date time', iconHtml: svg(ICON.tool, 'ic'), when: () => toolsSupported(), run: toggleTools },
+    { title: 'Tools: off', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(false) },
+    { title: 'Tools: on', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(true) },
     { title: 'Manage personas', keywords: 'system prompt character', keys: `${MOD}P`, run: openPersonas },
     { title: 'Manage models', keywords: 'pull download delete ollama', keys: `${MOD}M`, run: openModels },
     { title: 'Parameters & system prompt', keywords: 'temperature top_p seed context', run: openParams },
@@ -937,6 +1007,14 @@ function wireButtons() {
   $('#think-caret').addEventListener('click', (event) => {
     event.stopPropagation();
     openThinkMenu();
+  });
+
+  const tools = $('#tools-toggle');
+  tools.addEventListener('click', toggleTools);
+  tools.addEventListener('contextmenu', (event) => { event.preventDefault(); openToolsMenu(); });
+  $('#tools-caret').addEventListener('click', (event) => {
+    event.stopPropagation();
+    openToolsMenu();
   });
 
   const search = $('#chat-search');

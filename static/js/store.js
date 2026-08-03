@@ -14,6 +14,8 @@ export const S = {
   running: [],
   chats: [],           // summaries for the sidebar
   chat: null,          // the chat currently on screen
+  tools: [],           // registry from the server: [{name, description, summary}]
+  toolRoundLimit: 4,   // server-advertised cap on tool rounds per reply
   ollamaOk: true,
   ollamaError: '',
   dataDir: '',
@@ -147,6 +149,26 @@ export function visionSupported(name = currentModel()) {
 }
 
 /**
+ * Whether to offer the Tools pill for a model.
+ *
+ * Same trap as thinking: /api/tags reports only ["completion"] (or
+ * completion+vision) for every model here, while /api/show declares `tools` for
+ * all three — and gemma-4-E4B, which /api/tags says is completion+vision, calls
+ * tools correctly. server.py reads /api/show, so supports_tools is the honest
+ * answer. Unlike `think` there is nothing to discover by guessing: a model that
+ * ignores a tools array simply answers in prose, so there is no observed_* list.
+ */
+export function toolsSupported(name = currentModel()) {
+  return !!modelInfo(name)?.supports_tools && S.tools.length > 0;
+}
+
+/** Tool names to send with a request, or [] to send no tools array at all. */
+export function effectiveTools(chat = S.chat) {
+  if (!chat?.tools || !toolsSupported(currentModel(chat))) return [];
+  return S.tools.map((t) => t.name);
+}
+
+/**
  * Think value for the request: false | true | 'low' | 'medium' | 'high',
  * or null meaning "omit the field entirely".
  *
@@ -170,6 +192,8 @@ export async function loadBootstrap() {
   S.chats = data.chats || [];
   S.models = data.models || [];
   S.running = data.running || [];
+  S.tools = data.tools || [];
+  if (data.tool_round_limit) S.toolRoundLimit = data.tool_round_limit;
   S.ollamaOk = data.ollama_ok !== false;
   S.ollamaError = data.ollama_error || '';
   S.dataDir = data.data_dir || '';
@@ -215,7 +239,8 @@ export async function patchSettings(patch) {
 const pending = new Map();   // chatId -> { timer, chat }
 
 function summaryFor(chat) {
-  const last = [...chat.messages].reverse().find((m) => m.content);
+  // A tool result is raw JSON; it must never become the sidebar preview.
+  const last = [...chat.messages].reverse().find((m) => m.content && m.role !== 'tool');
   return {
     title: chat.title || 'New chat',
     updated: Date.now() / 1000,
@@ -240,6 +265,7 @@ export async function saveNow(chat) {
       persona_id: chat.persona_id,
       system_override: chat.system_override,
       think: chat.think,
+      tools: chat.tools,
       params: chat.params,
       messages: chat.messages,
     });
@@ -289,7 +315,7 @@ export function flushBeacon() {
         title: chat.title, pinned: chat.pinned, archived: chat.archived,
         model: chat.model, persona_id: chat.persona_id,
         system_override: chat.system_override, think: chat.think,
-        params: chat.params, messages: chat.messages,
+        tools: chat.tools, params: chat.params, messages: chat.messages,
       })], { type: 'application/json' }));
     } catch { /* nothing more we can do at unload */ }
   }
@@ -303,6 +329,7 @@ export async function newChat({ model, personaId, focus = true } = {}) {
     model: model || currentModel(),
     persona_id: personaId !== undefined ? personaId : (S.settings?.default_persona ?? null),
     think: false,
+    tools: !!S.settings?.tools_default,
     params: {},
   });
   S.chat = chat;

@@ -46,7 +46,7 @@ folder not existing. Don't remove that guard.
 | Bundling Python (PyInstaller) | ~20 MB vs 800 KB; macOS always has a usable python3 |
 | Encrypted local storage | FileVault already encrypts the disk. App-level encryption means a password every launch and destroys "everything is a readable file" — which is exactly what allowed hand-recovery of chats twice |
 | RAG / embeddings / vector store | A real subsystem. Without a library it means hand-writing chunking and a vector store, which is where the zero-dependency rule stops paying |
-| Tool calling / MCP | Needs an execution loop plus sandboxing. The Models panel shows a `TOOLS` chip with a tooltip saying Lantern does **not** send tools — keep that honest or remove the chip |
+| MCP | Still rejected. A client means a subprocess transport, a handshake, and arbitrary third-party servers — the opposite of "one file you can read". Tool calling itself now ships; see below |
 | MLX / Vulkan backends | Ollama's domain, not ours |
 | Browser `--app` window | Was the original approach. Replaced by the native host; it cost a 112 MB Brave profile for a cosmetic window |
 
@@ -73,6 +73,92 @@ Reasoning **effort** levels (low/medium/high) cannot be detected per model —
 Ollama exposes nothing. They are offered for every thinking-capable model;
 models built for it honour the string, others treat any level as plain "on".
 This is stated in the in-app guide. Don't try to "fix" it with detection.
+
+## Tool calling
+
+Step 1 of three: the registry, the schema plumbing, and one `current_datetime`
+tool. Chat-history search and the calculator come next.
+
+**The same under-reporting trap as thinking, in the same direction.**
+`/api/tags` reports `["completion"]` for `qwen3.5-9b` and
+`["completion","vision"]` for both gemmas. `/api/show` reports **`tools` for all
+three**, and `gemma-4-E4B` — which `/api/tags` says is completion+vision — called
+the tool correctly on the first attempt. Lantern reads `/api/show`, so
+`supports_tools` is already honest and no `observed_tools` list is needed:
+unlike `think`, there is nothing to discover by guessing, because a model that
+ignores a tools array just answers in prose.
+
+**Protocol facts, measured against Ollama 0.32.5, not assumed:**
+
+- `tool_calls` arrive **whole, on the final `done` chunk**, never as deltas.
+  `mergeToolCalls()` merges by `function.index` anyway so a model that does
+  stream them piecemeal still yields one entry per call.
+- `arguments` is a real **object**, not a JSON string. Don't parse it.
+- A result goes back as `{role:"tool", tool_name, content}`. The templates pair
+  on `tool_name`, not on the `id` Ollama generates.
+- A model will happily emit two calls in one round (verified: London and New
+  York in a single turn, both executed, both fed back).
+
+**The client sends tool *names*; the server owns the schemas.** `proxy_chat`
+resolves them through `tool_specs()` and drops anything unknown. A caller can
+never describe a callable the server has no implementation for — the same
+reasoning as the options allow-list. Tools are read-only, in-process, offline: no
+shell, no filesystem writes, no network. `run_tool()` never raises; a failure
+comes back as text the model can read and correct on the next round, because a
+500 there would kill an otherwise fine reply.
+
+**The round cap is on rounds, not calls.** After `TOOL_ROUND_LIMIT` (4)
+tool-executing rounds the loop asks **once more with no tools attached**, so the
+turn ends in an answer instead of a dead stop. Verified by temporarily setting
+the limit to 1.
+
+**Two paths are reasoned, not observed.** Stop pressed *during* tool execution —
+the signal is threaded into the tool fetch and the abort path truncates
+unrecorded results, but the window is milliseconds wide and could not be hit
+reliably. And the "model returned only calls we will not run" error, which needs
+a model to emit structured `tool_calls` with no tools array present.
+
+**Trap found doing that:** a model denied a tool it still wants writes the call
+out as prose — qwen emitted a literal `<tool_call>` block into the answer text.
+Lantern does **not** strip it. Chasing per-model call syntax is unwinnable, and
+silently editing model output is worse than explaining it, so the round-limit
+note says the syntax is literal text and nothing further ran.
+
+**Storage.** A tool exchange is three messages: the assistant turn carrying
+`tool_calls`, one `role:"tool"` message per result, then the answer. Each round
+is its own assistant message with its own stats, which is why the thread shows
+per-leg timings. Consequences that needed handling:
+
+- `tool_calls` are recorded **only after** the results exist, so history can
+  never hold a call with nothing under it. Stopping mid-execution truncates back
+  to the assistant turn.
+- Deleting an assistant turn takes its tool results with it, or the next request
+  replays an answer to a call the model never made.
+- Tool JSON is excluded from sidebar previews and from the auto-title
+  transcript, in both `chat_summary()` and `summaryFor()`. It is left *in* search
+  — matching a tool result is arguably useful.
+- Anything that cuts history at a turn must keep a call and its results
+  together. `toolTail()` is what **delete** and **branch** both use; without it,
+  branching from a tool turn produced a chat whose first request replayed a call
+  with no answer under it.
+
+**Find-in-chat had to learn about collapsed panels.** `runFind()` walks every
+text node under `#thread`, so it was marking text inside collapsed tool bodies —
+`display:none`, so the count was inflated and ⏎ scrolled to a highlight nobody
+could see. It now rejects nodes inside a `.think-box`/`.tool-box` that is not
+`.open`, and finds them again the moment you expand one. **This was already
+broken for collapsed thinking panels** before tools existed; the tool rows just
+made it obvious.
+
+**Rendering a tool round does not rebuild the thread.** `renderThread()` is
+O(thread) and re-runs `wireCodeBlocks` over every code block in the
+conversation, and a tool reply adds messages two or three times. So the loop
+appends the new nodes (`appendMessagesFrom`) and rebuilds only the one turn whose
+shape changed (`replaceMessageNode` — it loses its bubble and header once it
+turns out to be a silent tool call). Both bail out to a full render unless the
+DOM holds exactly the messages before the insertion point: the append path is an
+optimisation, never what correctness rests on, and the turn still ends in one
+full `renderThread()`.
 
 ## Architecture notes
 
@@ -124,6 +210,38 @@ bounded to 64 entries, and type-checked settings writes.
 writing `default_params: "nope"` made the *next read* throw, so `/api/bootstrap`
 500'd and the app would not start until the file was repaired by hand. Writes
 now type-check against the defaults and reads ignore a malformed value.
+
+**`safeUrl()` had a real XSS, found by skim, fixed and tested.** The scheme check
+was a literal test against the raw text, so a link written as
+`[x](java&#9;script:alert(1))` walked straight through: `escapeHtml()` has
+already turned `&` into `&amp;`, so the string reaching `safeUrl` does not read
+as `javascript:`, and the entity went into the `href` intact. The HTML parser
+then decoded `&#9;` to a tab and the URL parser **strips** ASCII tab and newline
+before deciding the scheme — `java<TAB>script:` becomes `javascript:` and runs
+in Lantern's own origin, which can read every chat and delete Ollama models
+through the API.
+
+The check now decodes one level of character references (`&#9;`, `&#x9;`,
+`&Tab;`, `&NewLine;`) and drops everything a URL parser ignores *before* testing
+the scheme. One level is exactly right: it matches what the HTML parser does, so
+`&amp;#9;` stays inert text on both sides — verified, it resolves as a relative
+`http:` path, not a script URL.
+
+Lesson for anything sanitising a URL here: test the string the **browser** will
+act on, not the one you are holding. Covered cases now: decimal, hex and named
+entity tab/newline, a leading control character, mixed case, `data:` in an image,
+and double encoding — with query strings, relative paths and `mailto:` still
+passing through untouched.
+
+**Micro-optimising the renderer is not worth it — measured.** `highlight()` was
+rebuilding a keyword `Set` and recompiling its regex per code block; both are now
+cached per language. Real saving: **0.009 ms per block, so ~0.27 ms on a
+30-block thread.** A single-pass `escapeHtml()` measured 2.18× faster than the
+chained form but saves **0.23 ms per 3,000 tokens**, so it was deliberately left
+alone — it is the XSS boundary, and that is not a trade worth making for a fifth
+of a millisecond. The renderer costs that actually mattered (re-parsing the whole
+buffer while streaming, re-rendering the thread per tool round) are already
+handled elsewhere. Don't come back here looking for speed.
 
 **Visual settings apply optimistically.** `patchSettings()` awaits the server
 before updating `S.settings`, so calling `applyTheme()` straight after it
@@ -192,6 +310,21 @@ variables, `\frac`, `^`/`_`, `\sqrt`, `\text`, and ~90 symbols. Unknown commands
 render as their own literal text rather than vanishing, so a miss degrades to
 "readable" instead of silent data loss.
 
+### Known divergences, found by review and deliberately left
+
+- **A blockquote swallows the block after it.** Lazy continuation in
+  `renderMarkdown()` absorbs any non-blank line following a `>` line, so a code
+  fence or heading written directly under a quote renders *inside* the quote.
+  GFM ends the quote at the fence. The fix is a one-line guard on the break
+  condition, but it changes how existing chats render, so it wants a test rather
+  than a drive-by.
+- Python decorators are not highlighted: the `\b` in `\b([A-Za-z_$@#][\w$]*)\b`
+  cannot match before `@` at the start of a line.
+- `codeBlock()` emits `data-code-id` and burns a `codeSeq` counter that nothing
+  reads — copying uses `.code-raw`.
+- `inline()` ends with a no-op `.replace(/\n/g, '\n')`, and its step comments
+  number 1,2,3,4,3,4,5,6.
+
 `$...$` detection has a heuristic guard so `"It costs $5 and $10"` is not eaten
 as maths: the body must contain a maths signal (`\ ^ _ { } = < >`) or be ≤3
 characters. Escaped `\$` never reaches it — the backslash-escape pass runs
@@ -258,7 +391,9 @@ Ranked by value, from the feature audit:
 1. **RAG / document ingestion** — no PDF, DOCX, chunking, or vector store. Text
    files are inlined verbatim as code fences.
 2. **Local embeddings** — `/api/embed` is never called.
-3. **Tool calling / MCP** — detected but never sent.
+3. **More tools** — chat-history search (`search_chats()` already exists, so it is
+   close to free) and a calculator over `ast` with a node whitelist. **Never
+   `eval()`** — that is arbitrary code execution driven by model output.
 4. Folders or tags for chats (date grouping + pinning only).
 5. Global hotkey to summon the window (~20 lines of Swift in the native host).
 6. Speech-to-text / TTS.
