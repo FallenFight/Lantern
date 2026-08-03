@@ -100,12 +100,11 @@ ignores a tools array just answers in prose.
   York in a single turn, both executed, both fed back).
 
 **The client sends tool *names*; the server owns the schemas.** `proxy_chat`
-resolves them through `tool_specs()` and drops anything unknown. A caller can
-never describe a callable the server has no implementation for — the same
-reasoning as the options allow-list. Tools are read-only, in-process, offline: no
-shell, no filesystem writes, no network. `run_tool()` never raises; a failure
-comes back as text the model can read and correct on the next round, because a
-500 there would kill an otherwise fine reply.
+resolves them via `tool_specs()` and drops anything unknown, so a caller can never
+describe a callable the server cannot run — the same reasoning as the options
+allow-list. Tools are read-only, in-process, offline: no shell, no writes, no
+network. `run_tool()` never raises; a failure returns as text the model can read
+and correct from, because a 500 would kill an otherwise fine reply.
 
 **The round cap is on rounds, not calls.** After `TOOL_ROUND_LIMIT` (4)
 tool-executing rounds the loop asks **once more with no tools attached**, so the
@@ -142,23 +141,20 @@ per-leg timings. Consequences that needed handling:
   branching from a tool turn produced a chat whose first request replayed a call
   with no answer under it.
 
-**Find-in-chat had to learn about collapsed panels.** `runFind()` walks every
-text node under `#thread`, so it was marking text inside collapsed tool bodies —
-`display:none`, so the count was inflated and ⏎ scrolled to a highlight nobody
-could see. It now rejects nodes inside a `.think-box`/`.tool-box` that is not
-`.open`, and finds them again the moment you expand one. **This was already
-broken for collapsed thinking panels** before tools existed; the tool rows just
-made it obvious.
+**Find-in-chat had to learn about collapsed panels.** `runFind()` walks every text
+node under `#thread`, so it marked text inside collapsed tool bodies —
+`display:none`, so the count was inflated and ⏎ scrolled to an invisible
+highlight. It now rejects nodes inside a `.think-box`/`.tool-box` that is not
+`.open`. **This was already broken for thinking panels** before tools existed.
 
 **Rendering a tool round does not rebuild the thread.** `renderThread()` is
-O(thread) and re-runs `wireCodeBlocks` over every code block in the
-conversation, and a tool reply adds messages two or three times. So the loop
-appends the new nodes (`appendMessagesFrom`) and rebuilds only the one turn whose
-shape changed (`replaceMessageNode` — it loses its bubble and header once it
-turns out to be a silent tool call). Both bail out to a full render unless the
-DOM holds exactly the messages before the insertion point: the append path is an
-optimisation, never what correctness rests on, and the turn still ends in one
-full `renderThread()`.
+O(thread) and re-runs `wireCodeBlocks` over every code block, and a tool reply
+adds messages two or three times. So the loop appends new nodes
+(`appendMessagesFrom`) and rebuilds only the turn whose shape changed
+(`replaceMessageNode` — it loses its bubble and header once it proves to be a
+silent tool call). Both fall back to a full render unless the DOM holds exactly
+the messages before the insertion point, and the turn still ends in one full
+`renderThread()`: the fast path is never what correctness rests on.
 
 ## Architecture notes
 
@@ -211,37 +207,31 @@ writing `default_params: "nope"` made the *next read* throw, so `/api/bootstrap`
 500'd and the app would not start until the file was repaired by hand. Writes
 now type-check against the defaults and reads ignore a malformed value.
 
-**`safeUrl()` had a real XSS, found by skim, fixed and tested.** The scheme check
-was a literal test against the raw text, so a link written as
-`[x](java&#9;script:alert(1))` walked straight through: `escapeHtml()` has
-already turned `&` into `&amp;`, so the string reaching `safeUrl` does not read
-as `javascript:`, and the entity went into the `href` intact. The HTML parser
-then decoded `&#9;` to a tab and the URL parser **strips** ASCII tab and newline
-before deciding the scheme — `java<TAB>script:` becomes `javascript:` and runs
-in Lantern's own origin, which can read every chat and delete Ollama models
-through the API.
+**`safeUrl()` had a real XSS.** It tested the scheme against the raw text, but
+`escapeHtml()` has already turned `&` into `&amp;` — so
+`[x](java&#9;script:alert(1))` did not read as `javascript:`, passed, and went
+into the `href` intact. The HTML parser then decoded `&#9;` to a tab, and the URL
+parser **strips** ASCII tab and newline before deciding the scheme:
+`java<TAB>script:` becomes `javascript:`, running in Lantern's own origin, which
+can read every chat through the API.
 
-The check now decodes one level of character references (`&#9;`, `&#x9;`,
-`&Tab;`, `&NewLine;`) and drops everything a URL parser ignores *before* testing
-the scheme. One level is exactly right: it matches what the HTML parser does, so
-`&amp;#9;` stays inert text on both sides — verified, it resolves as a relative
-`http:` path, not a script URL.
+It now decodes one level of character references and drops what a URL parser
+ignores *before* testing. One level is the right depth — it matches the HTML
+parser, so `&amp;#9;` stays inert on both sides (verified: resolves as a relative
+`http:` path). Tested against decimal, hex and named tab/newline entities, a
+leading control character, mixed case, `data:` in an image, and double encoding;
+query strings, relative paths and `mailto:` pass through untouched.
 
-Lesson for anything sanitising a URL here: test the string the **browser** will
-act on, not the one you are holding. Covered cases now: decimal, hex and named
-entity tab/newline, a leading control character, mixed case, `data:` in an image,
-and double encoding — with query strings, relative paths and `mailto:` still
-passing through untouched.
+**The lesson: sanitise against the string the browser will act on, not the one
+you are holding.**
 
-**Micro-optimising the renderer is not worth it — measured.** `highlight()` was
-rebuilding a keyword `Set` and recompiling its regex per code block; both are now
-cached per language. Real saving: **0.009 ms per block, so ~0.27 ms on a
-30-block thread.** A single-pass `escapeHtml()` measured 2.18× faster than the
-chained form but saves **0.23 ms per 3,000 tokens**, so it was deliberately left
-alone — it is the XSS boundary, and that is not a trade worth making for a fifth
-of a millisecond. The renderer costs that actually mattered (re-parsing the whole
-buffer while streaming, re-rendering the thread per tool round) are already
-handled elsewhere. Don't come back here looking for speed.
+**Micro-optimising the renderer is not worth it — measured.** `highlight()` now
+caches its keyword `Set` and compiled regex per language, worth **0.009 ms per
+code block (~0.27 ms on a 30-block thread)**. A single-pass `escapeHtml()` is
+2.18× faster but saves **0.23 ms per 3,000 tokens**, so it was left alone — it is
+the XSS boundary, and that is a bad trade for a fifth of a millisecond. The costs
+that actually mattered (re-parsing the buffer while streaming, re-rendering per
+tool round) are handled elsewhere. Don't come back here looking for speed.
 
 **Visual settings apply optimistically.** `patchSettings()` awaits the server
 before updating `S.settings`, so calling `applyTheme()` straight after it
@@ -330,6 +320,69 @@ as maths: the body must contain a maths signal (`\ ^ _ { } = < >`) or be ≤3
 characters. Escaped `\$` never reaches it — the backslash-escape pass runs
 first.
 
+## Before you ship — click everything
+
+Three bugs survived a code review *and* a targeted bug pass because every check
+was aimed at newly-written code and nobody operated the app. All three are
+visible within seconds of *using* it, and none look wrong when read:
+
+- **Stop never worked; Esc always did.** Wired as `addEventListener('click',
+  stopGeneration)`, and `stopGeneration(chatId = S.chat?.id)` takes a chat id — a
+  listener passes the click Event, so the Event *was* the argument (a default only
+  applies to `undefined`) and `S.runs.get(MouseEvent)` missed. Esc calls it with
+  no arguments. **Never hand a function with optional parameters to
+  `addEventListener`.**
+- **The theme button was the one place bypassing `applyVisual()`**, so it
+  repainted before `S.settings` updated: dark → light did nothing, and light
+  arrived one click late, on the click selecting `system`.
+- **A menu over the sidebar is a stacking-context problem, not a z-index one.**
+  `.menu` had `z-index: 60`, but it lives in `.main` (`z-index: 1`) and
+  `.sidebar` is a sibling at `2` — a child cannot escape its parent's stacking
+  context, so no value would have worked. It now reparents to `<body>` while open
+  (as `popupMenu()` in `chat.js` already did) and returns home on close, since the
+  ⋮ button opens the same node as an anchored dropdown. Measure before clamping,
+  and clear `right`: `#chat-menu` is `.menu-right`, so `left` *and* `right: 0`
+  stretches it to the viewport edge.
+
+So: before a build or a release, actually click these. Two minutes.
+
+- [ ] **Send** a message; **Stop** mid-reply (button *and* Esc — they take
+      different code paths)
+- [ ] Theme button three times: dark → light → system, each changing immediately
+- [ ] Right-click a chat row — menu appears **at the cursor and above** the
+      sidebar
+- [ ] ⋮ chat menu still opens anchored under the button
+- [ ] Model picker, persona picker, Think pill, Tools pill — each opens and the
+      caret menus work
+- [ ] Tools on: ask the time in another timezone; expand the tool row
+- [ ] ⌘K palette, ⌘F find (step with ⏎), ⌘⇧F search all chats
+- [ ] New chat, rename, pin, archive, duplicate, branch, delete
+- [ ] Regenerate, edit-and-resend, delete a message
+- [ ] Settings: an accent, a theme, text size — each applies on the first click
+- [ ] Export markdown + JSON, and **back up everything**
+- [ ] `/usr/bin/python3 -m py_compile server.py`
+- [ ] Reload with a reply in flight; switch chats mid-reply
+
+Also run:
+
+```bash
+python3 tools/lint.py
+```
+
+**The lesson worth generalising:** verify the *trigger*, not just the mechanism.
+The Stop abort path was traced and found correct; the button that called it was
+never clicked. And this file already held the answer to the theme bug — a rule
+written here is worth nothing if nothing checks the code against it. That is what
+`tools/lint.py` is for: stdlib only, and every check in it maps to a bug that
+really shipped. It knows two traps so far, and run against the commit before
+these fixes it flags **both** the Stop button and the theme button. Add a check
+whenever a new trap costs real time.
+
+A first attempt at this was a plain `grep` for bare listeners. It matched all 20
+of them, nearly all harmless, because a grep cannot see the target function's
+signature — a check that cries wolf gets ignored, which is worse than no check.
+The script correlates the listener with the function's parameter list instead.
+
 ## Testing notes
 
 - The in-app browser pane frequently reports `viewport 0x0`, which makes every
@@ -386,7 +439,16 @@ Still to do:
 
 ## Still open
 
-Ranked by value, from the feature audit:
+**Public release.** The repo is release-ready but untagged. The blocker is
+Gatekeeper: `build-app.sh` ad-hoc signs (`codesign --sign -`), so a `.app`
+downloaded from GitHub is quarantined and reads as *"Lantern is damaged"* —
+the worst possible message for something that is fine. Notarising needs a $99/yr
+Apple Developer account. Either document `xattr -dr com.apple.quarantine`, or
+ship source-only and let `./build-app.sh` run locally, which sidesteps quarantine
+entirely and fits the zero-dependency story. The README also has **no
+screenshots**, which for a UI app matters more than any prose in it.
+
+Then, ranked by value, from the feature audit:
 
 1. **RAG / document ingestion** — no PDF, DOCX, chunking, or vector store. Text
    files are inlined verbatim as code fences.
@@ -394,9 +456,14 @@ Ranked by value, from the feature audit:
 3. **More tools** — chat-history search (`search_chats()` already exists, so it is
    close to free) and a calculator over `ast` with a node whitelist. **Never
    `eval()`** — that is arbitrary code execution driven by model output.
-4. Folders or tags for chats (date grouping + pinning only).
-5. Global hotkey to summon the window (~20 lines of Swift in the native host).
-6. Speech-to-text / TTS.
-7. Context compaction when the window fills — note the default `num_ctx` is
+4. **Web search** — start with a URL reader: fetch a page, extract readable text,
+   drop it into context. No key, no dependency, and it keeps the app offline
+   until you paste a link. SearXNG on localhost later if you want real querying;
+   it fits this project better than an API key. Both are now tools, so they are
+   one `TOOLS` entry each.
+5. Folders or tags for chats (date grouping + pinning only).
+6. Global hotkey to summon the window (~20 lines of Swift in the native host).
+7. Speech-to-text / TTS.
+8. Context compaction when the window fills — note the default `num_ctx` is
    8192 while the installed models support 262,144, so raising that default is
    the cheaper half of the problem.

@@ -12,7 +12,7 @@ import {
 } from './chat.js';
 import {
   openSettings, openPersonas, openModels, openParams, openShortcuts, openGuide,
-  closeModal, modalOpen, applyPersona, pickModel,
+  closeModal, modalOpen, applyPersona, pickModel, applyVisual,
 } from './modals.js';
 import {
   openPalette, closePalette, paletteOpen, registerCommands, wirePalette,
@@ -232,20 +232,65 @@ function renderTopbar() {
 
 let closeMenus = () => {};
 
-function showMenu(menu, build) {
+/**
+ * Open a dropdown, optionally at a cursor position instead of under its anchor.
+ *
+ * `at` exists because of a stacking-context trap, not a z-index one. The menus
+ * live inside `.main` (z-index 1) and the sidebar is its sibling at z-index 2,
+ * so a menu opened over the sidebar paints *behind* it no matter how high its
+ * own z-index goes — a child cannot escape its parent's stacking context. The
+ * fix is to leave that context entirely: reparent to <body>, position fixed, and
+ * put the node back on close, because the same #chat-menu is also opened as a
+ * normal anchored dropdown from the ⋮ button.
+ */
+function showMenu(menu, build, at) {
   closeMenus();
   menu.textContent = '';
   build(menu);
+
+  const home = at ? { parent: menu.parentNode, next: menu.nextSibling } : null;
+  if (at) {
+    document.body.append(menu);
+    menu.classList.add('floating-menu');
+    menu.style.position = 'fixed';
+    // #chat-menu is .menu-right, which pins right: 0. Left *and* right set would
+    // stretch the box to the viewport edge instead of letting it size to content.
+    menu.style.right = 'auto';
+    menu.style.visibility = 'hidden';
+  }
   menu.hidden = false;
+  if (at) {
+    // Measure first, then clamp: flip above the cursor when there is no room
+    // below, and never let the right edge run off screen.
+    const height = menu.offsetHeight;
+    const width = menu.offsetWidth;
+    const top = at.y + height > window.innerHeight ? at.y - height : at.y;
+    menu.style.top = `${Math.max(8, top)}px`;
+    menu.style.left = `${Math.min(at.x, window.innerWidth - width - 10)}px`;
+    menu.style.visibility = '';
+  }
+
+  const restore = () => {
+    menu.hidden = true;
+    if (!home) return;
+    menu.classList.remove('floating-menu');
+    menu.style.position = '';
+    menu.style.top = '';
+    menu.style.left = '';
+    menu.style.right = '';
+    menu.style.visibility = '';
+    home.parent.insertBefore(menu, home.next);
+  };
+
   const dismiss = (event) => {
     if (menu.contains(event.target)) return;
-    menu.hidden = true;
+    restore();
     document.removeEventListener('mousedown', dismiss, true);
     closeMenus = () => {};
   };
   setTimeout(() => document.addEventListener('mousedown', dismiss, true), 0);
   closeMenus = () => {
-    menu.hidden = true;
+    restore();
     document.removeEventListener('mousedown', dismiss, true);
     closeMenus = () => {};
   };
@@ -430,6 +475,9 @@ function openToolsMenu() {
 function openChatMenuFor(chat, event) {
   const target = chat || S.chat;
   if (!target) return;
+  // A right-click opens at the pointer; the ⋮ button keeps its anchored spot.
+  const at = event && event.clientX != null
+    ? { x: event.clientX, y: event.clientY } : null;
   showMenu($('#chat-menu'), (menu) => {
     menu.append(menuItem({
       title: 'Rename', iconHtml: svg(ICON.edit, 'ic'),
@@ -525,20 +573,7 @@ function openChatMenuFor(chat, event) {
         toast('Chat deleted');
       },
     }));
-  });
-  if (event) {
-    const menu = $('#chat-menu');
-    menu.style.position = 'fixed';
-    menu.style.left = `${Math.min(event.clientX, window.innerWidth - 270)}px`;
-    menu.style.top = `${Math.min(event.clientY, window.innerHeight - 320)}px`;
-    menu.style.right = 'auto';
-  } else {
-    const menu = $('#chat-menu');
-    menu.style.position = '';
-    menu.style.left = '';
-    menu.style.top = '';
-    menu.style.right = '';
-  }
+  }, at);
 }
 
 /* ═══════════════════════════ composer ═══════════════════════════ */
@@ -664,7 +699,12 @@ function wireComposer() {
   }
 
   send.addEventListener('click', submit);
-  $('#btn-stop').addEventListener('click', stopGeneration);
+  // Must be wrapped, not passed by reference: stopGeneration's first parameter
+  // is a chat id with a default, and a listener is called with the click Event
+  // — which then *is* the argument, so the default never applies and
+  // S.runs.get(MouseEvent) misses. The button silently did nothing while Esc,
+  // which calls it with no arguments, worked fine.
+  $('#btn-stop').addEventListener('click', () => stopGeneration());
   sync();
 }
 
@@ -747,8 +787,11 @@ function editLastUser() {
 function cycleTheme() {
   const order = ['dark', 'light', 'system'];
   const next = order[(order.indexOf(S.settings.theme) + 1) % order.length];
-  patchSettings({ theme: next });
-  applyTheme();
+  // applyVisual, not patchSettings + applyTheme: patchSettings only updates
+  // S.settings *after* the server answers, so repainting straight afterwards
+  // painted the previous theme. Cycling dark -> light appeared to do nothing,
+  // and light only showed up on the next click, the one that selects `system`.
+  applyVisual({ theme: next });
   toast(`Theme: ${next}${next === 'system' ? ` (${resolvedTheme()})` : ''}`);
 }
 
