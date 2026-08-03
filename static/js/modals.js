@@ -90,7 +90,7 @@ function sectionTitle(text) {
  * pick appeared to need a second click. Update the local copy first so the UI
  * reacts at once, then persist in the background.
  */
-function applyVisual(patch) {
+export function applyVisual(patch) {
   Object.assign(S.settings, patch);
   applyTheme();
   patchSettings(patch).catch(() => toast('Could not save that setting', 'bad'));

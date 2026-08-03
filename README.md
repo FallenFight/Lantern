@@ -19,6 +19,17 @@ See [`NOTES.md`](NOTES.md) for design decisions, rejected approaches, and traps.
 
 ## Run it
 
+You need [Ollama](https://ollama.com) and at least one model:
+
+```bash
+brew install ollama    # or download from ollama.com
+ollama pull <model>    # anything from ollama.com/library
+```
+
+A model supporting **tools** and **thinking** unlocks the most of Lantern. Don't
+trust `ollama list` on capabilities — it under-reports both; the Models panel
+(⌘M) shows what Lantern detects directly.
+
 ### As a Mac app (recommended)
 
 ```bash
@@ -74,6 +85,21 @@ python3 server.py --port 8777 --open
 | `LANTERN_VERBOSE`    | unset                    | Log every HTTP request |
 
 Nothing binds beyond localhost unless you pass `--host 0.0.0.0`.
+
+### First things to try
+
+| | |
+|---|---|
+| **⌘K** | Command palette — everything lives here |
+| **Tools pill** | Lets the model read the real clock. Ask "what time is it in Tokyo?" |
+| **Think pill** | Extended reasoning, on models that support it |
+| **Persona pill** | Swap system prompts. Try *Terse* |
+| **⌘F** | Find in this chat (**⌘⇧F** searches every chat) |
+| **⌘,** | Settings — themes, accents, sampling |
+
+Two worth turning on immediately, in **Settings → Performance**: **Keep models
+loaded** (otherwise Ollama drops the model after a few idle minutes and your next
+message waits ~6s for a reload) and **Preload on launch**.
 
 ---
 
@@ -203,6 +229,29 @@ stays at full frame rate; `prefers-reduced-transparency` and
 
 ---
 
+## Troubleshooting
+
+**"Can't reach Ollama"** — start it with `ollama serve`, then hit Retry in the
+banner.
+
+**No models listed** — `ollama pull <name>`, or pull one from the Models panel.
+
+**No Tools pill** — the model doesn't advertise tool calling; check for a `TOOLS`
+chip in the Models panel (⌘M). Tools are off by default in a new chat: turn them
+on from the pill, or for every new chat in Settings → Behaviour.
+
+**Replies slow to start** — that's the model loading. Turn on *Keep models loaded*.
+
+**Answers looping or dull** — open Parameters (⌘K → "Parameters"). Raise
+temperature for writing, lower it for code. The built-in **settings guide**
+(⌘K → "Settings guide") explains every value and whether it's worth changing.
+
+**Context filling up** — the gauge under the composer turns red past 90%. Your
+model probably supports far more than the 8192 default; Parameters → Context
+window → **Max** reads its real limit.
+
+---
+
 ## Security
 
 The server refuses anything a browser on another site could forge. Without this,
@@ -249,12 +298,15 @@ On Linux and Windows, `Ctrl` replaces `⌘`.
 ## Layout
 
 ```
-server.py            stdlib HTTP server: Ollama proxy, JSON storage, guard
+server.py            stdlib HTTP server: Ollama proxy, JSON storage, guard,
+                     tool registry (add a tool = one entry in TOOLS)
 native/main.swift    NSWindow + WKWebView host, runs the server as a child
 lantern              terminal launcher (starts ollama if needed)
 build-app.sh         assembles dist/Lantern.app
 tools/make_icon.py   renders the app icon procedurally (no Pillow)
+tools/lint.py        checks the front end against traps that already bit us
 NOTES.md             design decisions, rejected approaches, traps
+CLAUDE.md            standing constraints, for coding assistants
 static/
   index.html
   css/app.css
@@ -271,7 +323,7 @@ static/
 data/                created on first run (or ~/Library/Application Support/Lantern)
 ```
 
-~7,400 lines total. Chat writes are atomic (temp file + `os.replace`).
+~8,100 lines total. Chat writes are atomic (temp file + `os.replace`).
 
 ## Notes
 
