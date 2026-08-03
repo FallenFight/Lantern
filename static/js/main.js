@@ -432,6 +432,9 @@ function setTools(value) {
   S.chat.tools = !!value;
   queueSaveChat();
   renderTopbar();
+  // The empty state offers tools when they are off, so it has to re-evaluate —
+  // otherwise the offer sits there after you have accepted it.
+  emit('tools-changed');
   toast(`Tools ${value ? 'on' : 'off'}`);
 }
 
@@ -1120,6 +1123,7 @@ async function init() {
   window.__lantern.backupAll = backupAll;
   window.__lantern.restoreAll = restoreAll;
   window.__lantern.openFind = openFind;
+  window.__lantern.setTools = setTools;   // the empty-state tools hint calls this
   setupCommands();
   wireButtons();
   wireComposer();

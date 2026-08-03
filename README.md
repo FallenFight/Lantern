@@ -151,7 +151,9 @@ answer, not a guess frozen at training time.
 
 Off by default — the schemas cost prompt tokens on every turn. Turn it on per
 chat from the pill, or for every new chat in Settings → Behaviour. The caret
-lists what the model may call.
+lists what the model may call. On a new chat with a tools-capable model, the
+empty screen offers it directly, since a feature that starts off is a feature
+nobody finds.
 
 Each call appears in the thread as a collapsed row: the tool, a one-line summary,
 and how long it took. Expand it to see the exact arguments and the exact JSON
@@ -257,7 +259,7 @@ temperature for writing, lower it for code. The built-in **settings guide**
 (⌘K → "Settings guide") explains every value and whether it's worth changing.
 
 **Context filling up** — the gauge under the composer turns red past 90%. Your
-model probably supports far more than the 8192 default; Parameters → Context
+model probably supports far more than the 32768 default; Parameters → Context
 window → **Max** reads its real limit.
 
 ---

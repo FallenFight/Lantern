@@ -485,6 +485,12 @@ Then, ranked by value, from the feature audit:
 5. Folders or tags for chats (date grouping + pinning only).
 6. Global hotkey to summon the window (~20 lines of Swift in the native host).
 7. Speech-to-text / TTS.
-8. Context compaction when the window fills — note the default `num_ctx` is
-   8192 while the installed models support 262,144, so raising that default is
-   the cheaper half of the problem.
+8. Context compaction when the window fills. The cheap half is done — the default
+   `num_ctx` went from 8192 to **32768** in 0.9.0, measured at **+0.83 GB
+   resident on a 9B model, about 34 MB per 1k tokens**, for 4× the usable
+   conversation. 65536 would have cost ~2 GB for headroom almost nobody reaches.
+   What remains is the hard half: deciding what to drop when even 32k fills.
+   **Note this only affects new installs** — `get_settings()` merges stored
+   values over the defaults, so anyone with `num_ctx` already saved keeps 8192
+   until they change it. That is deliberate; a silent memory jump on upgrade
+   would be worse.

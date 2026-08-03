@@ -92,7 +92,12 @@ DEFAULT_SETTINGS = {
         "top_k": 40,
         "min_p": 0.0,
         "repeat_penalty": 1.1,
-        "num_ctx": 8192,
+        # 8192 was Ollama's own default and far below what modern models handle
+        # (these report 131k-262k). Measured on a 9B: 8192 -> 32768 costs +0.83 GB
+        # resident, about 34 MB per 1k tokens, for 4x the usable conversation.
+        # 65536 would be ~2 GB for headroom almost nobody reaches. Parameters ->
+        # Max still reads the model's real limit for anyone who wants it.
+        "num_ctx": 32768,
         "num_predict": -1,
         "seed": None,
         "stop": [],
