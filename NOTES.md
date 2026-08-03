@@ -47,6 +47,8 @@ folder not existing. Don't remove that guard.
 | Encrypted local storage | FileVault already encrypts the disk. App-level encryption means a password every launch and destroys "everything is a readable file" — which is exactly what allowed hand-recovery of chats twice |
 | RAG / embeddings / vector store | A real subsystem. Without a library it means hand-writing chunking and a vector store, which is where the zero-dependency rule stops paying |
 | MCP | Still rejected. A client means a subprocess transport, a handshake, and arbitrary third-party servers — the opposite of "one file you can read". Tool calling itself now ships; see below |
+| Global hotkey to summon the window | Cut from the roadmap. It is Swift in the native host, macOS-only, and Spotlight and ⌘Tab already summon the app — a new native surface to maintain for something the OS does |
+| **Parallel** multi-model comparison (the Msty / Open WebUI approach) | Not implementable on the target hardware. Measured: `qwen3.5-9b` is 7.29 GB resident at the 32k default, so two loaded models is ~14.6 GB on a 16 GB M4 — under 1.5 GB left for macOS and the app. Ollama would evict one mid-generation or the machine would swap. Comparison runs **sequentially** instead, which is a better fit, not a compromise |
 | MLX / Vulkan backends | Ollama's domain, not ours |
 | Browser `--app` window | Was the original approach. Replaced by the native host; it cost a 112 MB Brave profile for a cosmetic window |
 
@@ -76,9 +78,38 @@ This is stated in the in-app guide. Don't try to "fix" it with detection.
 
 ## Tool calling
 
-Two tools ship: `current_datetime` and `search_chats`. A calculator over `ast`
-with a node whitelist is the remaining one. Adding a tool is one entry in
-`TOOLS` — the loop, the UI and the round cap need no changes.
+Three tools ship: `current_datetime`, `search_chats` and `calculate`. Adding one
+is a single entry in `TOOLS` — the loop, the UI and the round cap need no
+changes.
+
+**The calculator is the one tool where a mistake is arbitrary code execution**,
+because it evaluates a string the *model* wrote. Three rules hold it:
+
+1. **Never `eval()`, and never `compile()` the parsed tree either.** `ast.parse`
+   produces the tree; `_calc_eval` walks it by hand. There is no path from input
+   to the interpreter at all.
+2. **Whitelist node types.** Attributes, subscripts, lambdas, comprehensions and
+   anything else are refused by default, so a future Python syntax feature cannot
+   quietly become reachable. `(1).__class__` and
+   `().__class__.__bases__[0].__subclasses__()` both die on the Attribute check.
+3. **Bound the work.** Arbitrary-precision ints make `9**9**9` a hang rather than
+   an error, so exponents are capped at 256 and nesting depth at 25.
+
+Tested: 14 correctness cases and 19 hostile ones — `__import__`, `open`,
+`__subclasses__` traversal, `exec`, `eval`, `globals`, comprehensions, lambdas,
+huge powers, bare names, statements. Zero leaks. **Re-run those if the evaluator
+is ever touched.**
+
+**A verified tool does not make the model's prose true.** Asked for
+`4871 × 3928 ÷ 7`, qwen called `calculate` with the whole expression, got the
+right answer — and then stated the intermediate product as 19,135,088 when it is
+19,133,288, a figure it never asked for and which contradicts its own tool
+result. Adding "call it for every number you intend to state, including
+intermediate steps" to the description improved the framing but did **not** stop
+it. Tuning prompt text further against one model is not worth it; the real
+mitigation is already in the design — every call is rendered with its exact
+arguments and result, so a wrong claim is checkable against what actually ran.
+Say so in the README rather than implying tools make answers trustworthy.
 
 **`search_chats` needed different search semantics from the UI, and only an
 end-to-end model test showed it.** The tool reuses `search_chats()`, which
@@ -484,32 +515,36 @@ Still to do:
 
 ## Still open
 
-**Public release.** The repo is release-ready but untagged. The blocker is
-Gatekeeper: `build-app.sh` ad-hoc signs (`codesign --sign -`), so a `.app`
-downloaded from GitHub is quarantined and reads as *"Lantern is damaged"* —
-the worst possible message for something that is fine. Notarising needs a $99/yr
-Apple Developer account. Either document `xattr -dr com.apple.quarantine`, or
-ship source-only and let `./build-app.sh` run locally, which sidesteps quarantine
-entirely and fits the zero-dependency story. The README also has **no
-screenshots**, which for a UI app matters more than any prose in it.
+**Going public at 1.0.** `v0.8.0`, `v0.8.1` and `v0.9.0` are tagged and released,
+but **the repo is private by choice until 1.0** — so those releases are a private
+record, not an announcement. Two consequences: the README already addresses
+strangers (install steps, requirements, a clone URL) and is a promissory note
+rather than a description of today; and **the stranger path cannot be tested
+while private** — a fresh clone only worked because the author was authenticated.
+Before 1.0, clone with credentials unset, or flip public briefly and back.
+
+Distribution is settled: **source-only**, because `build-app.sh` ad-hoc signs
+(`codesign --sign -`), so a downloaded `.app` is quarantined and reads as
+*"Lantern is damaged"* — the worst possible message for something that is fine.
+Notarising needs a $99/yr Apple Developer account. Building locally sidesteps
+quarantine entirely and fits the zero-dependency story. Still missing for 1.0:
+**README screenshots**, which for a UI app matter more than any prose in it.
 
 Then, ranked by value, from the feature audit:
 
 1. **RAG / document ingestion** — no PDF, DOCX, chunking, or vector store. Text
    files are inlined verbatim as code fences.
 2. **Local embeddings** — `/api/embed` is never called.
-3. **A calculator tool** over `ast` with a node whitelist. **Never `eval()`** —
-   that is arbitrary code execution driven by model output. The last of the three
-   tools planned for 0.8/0.9.
-4. **Web search** — start with a URL reader: fetch a page, extract readable text,
+3. **Web search** — start with a URL reader: fetch a page, extract readable text,
    drop it into context. No key, no dependency, and it keeps the app offline
    until you paste a link. SearXNG on localhost later if you want real querying;
    it fits this project better than an API key. Both are now tools, so they are
    one `TOOLS` entry each.
-5. Folders or tags for chats (date grouping + pinning only).
-6. Global hotkey to summon the window (~20 lines of Swift in the native host).
-7. Speech-to-text / TTS.
-8. Context compaction when the window fills. The cheap half is done — the default
+4. **Folders or tags for chats** — date grouping and pinning only today.
+   Deferred to **1.0** deliberately; it is the last structural gap against apps
+   like Msty, but it is not what 0.9.5 is about.
+5. Speech-to-text / TTS.
+6. Context compaction when the window fills. The cheap half is done — the default
    `num_ctx` went from 8192 to **32768** in 0.9.0, measured at **+0.83 GB
    resident on a 9B model, about 34 MB per 1k tokens**, for 4× the usable
    conversation. 65536 would have cost ~2 GB for headroom almost nobody reaches.
