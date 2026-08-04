@@ -328,6 +328,13 @@ scrolled out of view, with `contain-intrinsic-size` holding a placeholder height
 so the scrollbar does not jump. The last message is exempted — it is the one
 streaming, and skipping its paint would stall the tokens.
 
+**It also makes `innerText` return empty for skipped messages**, which will
+mislead anyone testing through the DOM: a thread of real messages reports 0
+characters each. Nothing in the app is affected, because every consumer reads
+`message.content` rather than the DOM — find-in-chat walks *text nodes*, which
+are unaffected. But assert against the data model, not `innerText`, or you will
+diagnose a bug that does not exist.
+
 **Visual settings apply optimistically.** `patchSettings()` awaits the server
 before updating `S.settings`, so calling `applyTheme()` straight after it
 repainted with the *previous* value — every theme/accent/size pick appeared to
