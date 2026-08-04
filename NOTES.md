@@ -311,6 +311,30 @@ the XSS boundary, and that is a bad trade for a fifth of a millisecond. The cost
 that actually mattered (re-parsing the buffer while streaming, re-rendering per
 tool round) are handled elsewhere. Don't come back here looking for speed.
 
+**Frame callbacks do not fire on an occluded window, and that broke the sliding
+lens.** The segmented controls in Settings place their indicator by measuring the
+active button, which cannot happen before the control is in the document. The
+first attempt deferred that to `requestAnimationFrame`, retrying until widths
+existed — which on a window producing no frames is an unbounded loop that never
+succeeds. The Density control opened with no indicator at all; Message width only
+looked right because it had been clicked. A `ResizeObserver` fails the same way,
+being equally frame-driven. `openModal()` now calls `placeLens()` once the dialog
+is on screen: a synchronous layout read at the one moment the answer is knowable.
+**If placement depends on layout, do it when you know layout exists — not on a
+callback that assumes the window is visible.**
+
+**`content-visibility: auto` on `.msg`** skips layout and paint for messages
+scrolled out of view, with `contain-intrinsic-size` holding a placeholder height
+so the scrollbar does not jump. The last message is exempted — it is the one
+streaming, and skipping its paint would stall the tokens.
+
+**It also makes `innerText` return empty for skipped messages**, which will
+mislead anyone testing through the DOM: a thread of real messages reports 0
+characters each. Nothing in the app is affected, because every consumer reads
+`message.content` rather than the DOM — find-in-chat walks *text nodes*, which
+are unaffected. But assert against the data model, not `innerText`, or you will
+diagnose a bug that does not exist.
+
 **Visual settings apply optimistically.** `patchSettings()` awaits the server
 before updating `S.settings`, so calling `applyTheme()` straight after it
 repainted with the *previous* value — every theme/accent/size pick appeared to
@@ -526,27 +550,54 @@ Still to do — folded into the 0.9.5 plan below:
 
 ## Where things stand
 
-**Shipped: `v0.9.1`.** Tool calling is complete — `current_datetime`,
+**Shipped: `v0.9.5`.** Tool calling is complete — `current_datetime`,
 `search_chats`, `calculate` — discoverable from the empty state, capped at four
 rounds per reply. `num_ctx` defaults to 32768. The repo is on GitHub but
 **private until 1.0**.
 
-**Next up is 0.9.5**, designed but not started:
+0.9.5 delivered model comparison, the prompt library, the sliding lens on the
+Settings segmented controls, and `content-visibility` on off-screen messages.
 
-1. **Model comparison** — the headline. Design below.
-2. **Prompt library** — the clearest gap against Msty. Personas cover *system*
-   prompts; there is nothing for reusable *user* prompts. ⌘⇧P is taken; the
-   palette is the natural home.
-3. **Two free UI wins** — `content-visibility: auto` on off-screen messages (a
-   real performance win on long threads, not decoration) and the sliding lens on
-   the Settings segmented controls. View Transitions were considered for chat
-   switching but need Safari 18+/macOS 15 while the bundle declares
-   `LSMinimumSystemVersion 11.0`, so they need feature detection or skipping.
-
-Then **1.0**: README screenshots, folders, testing the stranger path with
+Next is **1.0**: README screenshots, folders, testing the stranger path with
 credentials unset, and flipping the repo public.
 
-### The comparison design, so it does not have to be re-derived
+### Comparison — built
+
+Variants, the pager, sequential generation, per-variant metrics, and the
+side-by-side compare view. The compare view is static text in columns with each
+answer's tok/s, TTFT, output tokens and thinking time — showing *speed beside
+quality* is the whole differentiator, since Msty and Open WebUI show only the
+text. On the first real comparison qwen thought for 65s and emitted 926 tokens to
+gemma's 32s and 428, for near-identical answers. That is the trade nobody else
+surfaces.
+
+**It reuses `runAssistant` rather than forking it.** Comparing streams *over* the
+existing turn — the old answer is snapshotted into `variants[0]`, the message is
+cleared and re-answered in place with the whole normal pipeline (painter, tool
+loop, round cap), and the result is appended as another variant. Keeping the
+message id means the DOM node, the painter's per-frame lookup and any open
+find-marks all stay attached. Two things had to change for it:
+
+- **`buildPayloadMessages(chat, limit)`** — the turn being re-answered sits
+  *inside* the array, not at the end, so everything from it onward is cut. Without
+  that the model is shown its own later replies.
+- **The abort path must not splice.** Stopping a normal run deletes an empty
+  placeholder; stopping a comparison must instead put the previous answer back,
+  or the turn is left blank.
+
+**The selected variant is mirrored onto the message.** `content`, `model`,
+`stats` and the rest are copied up from `variants[variant]`, so saving, export,
+search, and `buildPayloadMessages()` need no knowledge of variants at all. The
+alternative — reading through an index everywhere — would have touched every
+consumer.
+
+**Verified:** two models answering one turn stores two variants and *does not*
+append a message; the pager switches text, model, metrics and thinking together;
+the choice survives a reload. Gemma-4 produced 1,854 characters of reasoning to
+qwen's 4,027, and each stayed with its own variant — a useful accident, since it
+re-confirms that gemma reasons despite not advertising it.
+
+### The original design, for the parts not yet built
 
 Generation is **sequential**, and the rejected-approaches table above has the
 memory arithmetic for why parallel cannot work here. The rest:

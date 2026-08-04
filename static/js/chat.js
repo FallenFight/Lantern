@@ -7,6 +7,7 @@ import {
   toolsSupported,
 } from './store.js';
 import { api, chatStream } from './api.js';
+import { openModal, closeModal } from './modals.js';
 import { renderMarkdown, wireCodeBlocks } from './markdown.js';
 import {
   $, el, svg, ICON, escapeHtml, copyText, toast, dur, num,
@@ -208,6 +209,9 @@ function buildMessage(message, index) {
     }
     wrap.append(bubble);
   }
+  if (!isUser && message.variants?.length > 1) {
+    wrap.append(buildVariantPager(message, index));
+  }
   if (message.toolLimit) {
     // A model denied a tool it still wants often writes the call out as prose
     // (qwen emits a literal <tool_call> block). Mangling the reply to hide that
@@ -319,6 +323,10 @@ function buildActions(message, index) {
     add(ICON.redo, '', 'Regenerate', () => regenerate(index));
     add(ICON.swap, '', 'Regenerate with another model…',
       (event) => regenerateWith(index, event.currentTarget));
+    if (comparable(message)) {
+      add(ICON.compare, '', 'Answer again with another model, keeping this one…',
+        (event) => compareWith(index, event.currentTarget));
+    }
     add(ICON.branch, '', 'Branch a new chat from here', () => branchFrom(index));
   }
   add(ICON.trash, '', 'Delete message', () => deleteMessage(index));
@@ -393,6 +401,93 @@ function regenerateWith(index, anchor) {
       await regenerate(index);
     },
   })));
+}
+
+/**
+ * Answer this turn again with another model, keeping the existing answer.
+ *
+ * Sequential by necessity — one run per chat, and two loaded models will not fit
+ * in memory together on the machines this targets.
+ */
+function compareWith(index, anchor) {
+  const chat = S.chat;
+  if (!chat || isStreaming(chat.id)) return;
+  const already = new Set((chat.messages[index]?.variants || []).map((v) => v.model));
+  popupMenu(anchor, S.models.map((m) => ({
+    title: shortModel(m.name),
+    sub: already.has(m.name) ? 'already answered this' : (m.parameter_size || ''),
+    on: already.has(m.name),
+    run: () => runAssistant(chat, { compareAt: index, model: m.name }),
+  })));
+}
+
+/** ‹ 2/3 › — switch which answer this turn shows, or see them together. */
+function buildVariantPager(message, index) {
+  const total = message.variants.length;
+  const at = Math.min(message.variant ?? 0, total - 1);
+  const step = (delta) => selectVariant(S.chat, index, (at + delta + total) % total);
+  return el('div', { class: 'variant-pager' },
+    el('button', { class: 'vp-arrow', title: 'Previous answer',
+      html: svg(ICON.caret, 'ic ic-sm'), onclick: () => step(-1) }),
+    el('span', { class: 'vp-count', text: `${at + 1}/${total}` }),
+    el('button', { class: 'vp-arrow next', title: 'Next answer',
+      html: svg(ICON.caret, 'ic ic-sm'), onclick: () => step(1) }),
+    el('span', { class: 'vp-model', text: shortModel(message.model || '') }),
+    el('button', { class: 'vp-open', title: 'See the answers side by side',
+      html: `${svg(ICON.compare, 'ic ic-sm')}<span>Compare</span>`,
+      onclick: () => openCompare(index) }),
+  );
+}
+
+/** Per-variant figures. Speed is half the comparison on local models. */
+function variantStats(variant) {
+  const s = variant.stats || {};
+  const rate = s.eval_count && s.eval_duration
+    ? (s.eval_count / (s.eval_duration / 1e9)).toFixed(1) : null;
+  const parts = [];
+  if (rate) parts.push(`${rate} tok/s`);
+  if (variant.ttftMs != null) parts.push(`${formatMs(variant.ttftMs)} to first token`);
+  if (s.eval_count) parts.push(`${num(s.eval_count)} out`);
+  if (variant.thinkMs) parts.push(`${formatMs(variant.thinkMs)} thinking`);
+  return parts;
+}
+
+/**
+ * The answers in columns.
+ *
+ * Static text — nothing streams here — so the cost is one render of content
+ * that already exists. Showing the metrics beside each answer is the point:
+ * on local models the real question is whether a slower model was worth it.
+ */
+function openCompare(index) {
+  const chat = S.chat;
+  const message = chat?.messages?.[index];
+  if (!message?.variants?.length) return;
+  const selected = Math.min(message.variant ?? 0, message.variants.length - 1);
+
+  const grid = el('div', { class: 'cmp-grid' });
+  message.variants.forEach((variant, i) => {
+    const body = el('div', { class: 'md' });
+    body.innerHTML = S.settings?.render_markdown === false
+      ? `<p>${escapeHtml(variant.content || '')}</p>`
+      : renderMarkdown(variant.content || '');
+    const column = el('div', { class: `cmp-col${i === selected ? ' on' : ''}` },
+      el('div', { class: 'cmp-head' },
+        el('span', { class: 'cmp-model', text: shortModel(variant.model || '—') }),
+        i === selected ? el('span', { class: 'cmp-badge', text: 'in use' }) : null),
+      el('div', { class: 'cmp-stats', text: variantStats(variant).join('  ·  ') || '—' }),
+      el('div', { class: 'cmp-body' }, body),
+      el('button', {
+        class: 'btn btn-ghost cmp-use',
+        text: i === selected ? 'Currently used' : 'Use this answer',
+        disabled: i === selected,
+        onclick: async () => { await selectVariant(chat, index, i); closeModal(); },
+      }));
+    grid.append(column);
+  });
+
+  openModal(`Compare ${message.variants.length} answers`, grid, null, { wide: true });
+  wireCodeBlocks(grid);
 }
 
 function startEdit(message, index) {
@@ -521,11 +616,15 @@ export async function sendMessage(text) {
 }
 
 /** Build the message array Ollama receives. */
-function buildPayloadMessages(chat) {
+function buildPayloadMessages(chat, limit) {
   const messages = [];
   const system = effectiveSystem(chat);
   if (system && system.trim()) messages.push({ role: 'system', content: system });
-  for (const message of chat.messages) {
+  // `limit` exists for comparison: the turn being re-answered sits *inside* the
+  // array rather than at the end, so everything from it onward must be cut or
+  // the model is shown the future.
+  const history = Number.isInteger(limit) ? chat.messages.slice(0, limit) : chat.messages;
+  for (const message of history) {
     if (message.error && !message.content) continue;
     if (message.role === 'tool') {
       // One message per call, named so the model can pair it with the call it
@@ -547,6 +646,54 @@ function buildPayloadMessages(chat) {
   }
   return messages;
 }
+
+/* ─────────────────────────── answer variants ─────────────────────────── */
+
+/**
+ * One assistant turn can hold several answers — the same question put to
+ * different models — and the thread shows whichever is selected.
+ *
+ * The selected variant is mirrored onto the message itself rather than read
+ * through an index, so `buildPayloadMessages()`, saving, export and search all
+ * carry on working untouched. `variants` and `variant` are the only new fields.
+ *
+ * Generation is sequential by necessity, not preference: two loaded models is
+ * roughly 14.6 GB on a 16 GB machine. See the rejected-approaches table in
+ * NOTES.md.
+ */
+const VARIANT_FIELDS = ['content', 'thinking', 'thinkMs', 'model', 'persona_name',
+  'stats', 'ttftMs', 'error', 'stopped', 'toolLimit'];
+
+function snapshotVariant(message) {
+  const out = {};
+  for (const key of VARIANT_FIELDS) {
+    if (message[key] !== undefined) out[key] = message[key];
+  }
+  return out;
+}
+
+function applyVariant(message, variant) {
+  for (const key of VARIANT_FIELDS) delete message[key];
+  Object.assign(message, variant);
+}
+
+/** Show variant `index` of the turn at `at`, and remember the choice. */
+async function selectVariant(chat, at, index) {
+  const message = chat.messages[at];
+  if (!message?.variants?.[index]) return;
+  applyVariant(message, message.variants[index]);
+  message.variant = index;
+  await queueSaveFor(chat, true);
+  renderThread();
+}
+
+/**
+ * A turn that called tools cannot be compared yet: its results live in separate
+ * `tool` messages after it, so swapping the answer would leave the wrong rows
+ * underneath. Guarded rather than half-supported.
+ */
+const comparable = (message) => message?.role === 'assistant'
+  && !message.pending && !message.tool_calls?.length;
 
 /**
  * Run every tool call from one assistant turn and append a `tool` message for
@@ -618,9 +765,17 @@ function mergeToolCalls(into, incoming) {
  * on total calls: past it we ask once more with no tools attached, which makes
  * the model answer from what it already has instead of leaving the turn dead.
  */
-export async function runAssistant(chat = S.chat) {
+export async function runAssistant(chat = S.chat, opts = {}) {
   if (!chat || isStreaming(chat.id)) return;
-  const model = currentModel(chat);
+  // Comparison re-answers a turn that already exists, in place: the old answer
+  // is snapshotted first, the message is cleared and streamed into with the
+  // whole normal pipeline, and the result is appended as another variant. That
+  // reuses the painter, the tool loop and the round cap rather than forking them.
+  const compareAt = Number.isInteger(opts.compareAt) ? opts.compareAt : null;
+  const target = compareAt === null ? null : chat.messages[compareAt];
+  if (compareAt !== null && !comparable(target)) return;
+
+  const model = opts.model || currentModel(chat);
   if (!model) {
     toast('No model selected — pull one from the Models panel', 'bad');
     return;
@@ -631,6 +786,13 @@ export async function runAssistant(chat = S.chat) {
   const think = effectiveThink(chat);
   const toolNames = effectiveTools(chat);
 
+  // Keep what is on screen now, so an abort can put it back.
+  const restore = target ? snapshotVariant(target) : null;
+  if (target && !Array.isArray(target.variants)) {
+    target.variants = [restore];
+    target.variant = 0;
+  }
+
   const abort = new AbortController();
   let placeholder = null;
   let painter = { stop() {}, body() {}, think() {}, finishThink() {} };
@@ -639,21 +801,35 @@ export async function runAssistant(chat = S.chat) {
   /** One request and its stream. Returns the tool calls the model asked for. */
   async function streamRound(withTools) {
     painter.stop();
-    placeholder = {
-      id: msgId(),
-      role: 'assistant',
-      content: '',
-      thinking: '',
-      ts: Date.now() / 1000,
-      model,
-      persona_name: persona && persona.prompt ? persona.name : null,
-      pending: true,
-    };
+    if (target && rounds === 0) {
+      // Stream over the turn being compared, keeping its id so the painter, its
+      // DOM node and any open find-marks stay attached to it.
+      placeholder = target;
+      for (const key of VARIANT_FIELDS) delete placeholder[key];
+      Object.assign(placeholder, {
+        content: '', thinking: '', model,
+        persona_name: persona && persona.prompt ? persona.name : null,
+        pending: true,
+      });
+    } else {
+      placeholder = {
+        id: msgId(),
+        role: 'assistant',
+        content: '',
+        thinking: '',
+        ts: Date.now() / 1000,
+        model,
+        persona_name: persona && persona.prompt ? persona.name : null,
+        pending: true,
+      };
+    }
     if (think) placeholder.thinkingPending = true;
 
     const body = {
       model,
-      messages: buildPayloadMessages(chat),   // built before the placeholder is pushed
+      // Cut the history at the turn being re-answered, or the model is shown
+      // its own later replies.
+      messages: buildPayloadMessages(chat, compareAt),
       options: effectiveParams(chat),
     };
     if (S.settings?.keep_alive) body.keep_alive = S.settings.keep_alive;
@@ -663,8 +839,12 @@ export async function runAssistant(chat = S.chat) {
     // front end can never describe a callable the server cannot run.
     if (withTools) body.tools = toolNames;
 
-    chat.messages.push(placeholder);
-    if (visible()) appendMessagesFrom(chat, chat.messages.length - 1);
+    if (placeholder !== target) {
+      chat.messages.push(placeholder);
+      if (visible()) appendMessagesFrom(chat, chat.messages.length - 1);
+    } else if (visible()) {
+      replaceMessageNode(chat, compareAt);   // it lost its content; redraw in place
+    }
     if (rounds === 0) beginRun(chat, placeholder.id, abort);
     painter = makePainter(chat, placeholder);
     rounds += 1;
@@ -792,14 +972,25 @@ export async function runAssistant(chat = S.chat) {
         if (at >= 0 && !placeholder.tool_calls?.length) chat.messages.length = at + 1;
         if (!placeholder.content && !placeholder.thinking) {
           // splice in place — other code holds a reference to this array
-          if (at >= 0) chat.messages.splice(at, 1);
+          if (at >= 0 && placeholder !== target) chat.messages.splice(at, 1);
         }
       }
     } else if (placeholder) {
       placeholder.error = err.hint ? `${err.message} — ${err.hint}` : err.message;
       console.error(err);
     }
+    // A comparison that produced nothing must not leave the turn blank: put the
+    // answer that was on screen back.
+    if (target && restore && !target.content && !target.error) {
+      applyVariant(target, restore);
+      target.pending = false;
+    }
   } finally {
+    // Keep the new answer as a variant beside the old one, and select it.
+    if (target && target.content && target.variants) {
+      target.variants.push(snapshotVariant(target));
+      target.variant = target.variants.length - 1;
+    }
     painter.stop();
     endRun(chat.id);
     if (visible()) renderThread();

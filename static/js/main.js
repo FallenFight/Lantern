@@ -12,7 +12,8 @@ import {
 } from './chat.js';
 import {
   openSettings, openPersonas, openModels, openParams, openShortcuts, openGuide,
-  closeModal, modalOpen, applyPersona, pickModel, applyVisual,
+  closeModal, modalOpen, applyPersona, pickModel, applyVisual, openPrompts,
+  insertPrompt,
 } from './modals.js';
 import {
   openPalette, closePalette, paletteOpen, registerCommands, wirePalette,
@@ -724,7 +725,10 @@ function wireKeys() {
   document.addEventListener('keydown', (event) => {
     const mod = isMac ? event.metaKey : event.ctrlKey;
     const target = event.target;
-    const typing = target.matches('input, textarea, [contenteditable]');
+    // Guarded: a keydown whose target is the document rather than an element
+    // has no .matches(), and the throw would take every shortcut down with it.
+    const typing = target instanceof Element
+      && target.matches('input, textarea, [contenteditable]');
 
     if (event.key === 'Escape') {
       if (paletteOpen()) { closePalette(); return; }
@@ -986,6 +990,7 @@ function setupCommands() {
     { title: 'Tools: off', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(false) },
     { title: 'Tools: on', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(true) },
     { title: 'Manage personas', keywords: 'system prompt character', keys: `${MOD}P`, run: openPersonas },
+    { title: 'Prompt library', keywords: 'saved prompts snippets reuse template', run: openPrompts },
     { title: 'Manage models', keywords: 'pull download delete ollama', keys: `${MOD}M`, run: openModels },
     { title: 'Parameters & system prompt', keywords: 'temperature top_p seed context', run: openParams },
     { title: 'Settings', keywords: 'preferences options config', keys: `${MOD},`, run: openSettings },
@@ -1029,6 +1034,15 @@ function setupCommands() {
     { title: 'Copy data folder path', keywords: 'where stored files', run: async () => {
       toast(await copyText(S.dataDir) ? 'Path copied' : 'Copy failed');
     } },
+    // Saved prompts are commands too, so ⌘K then a few letters inserts one.
+    // registerCommands replaces the list wholesale, so this re-runs whenever the
+    // library changes — see on('prompts') below.
+    ...S.prompts.map((prompt) => ({
+      title: `Prompt: ${prompt.name}`,
+      keywords: `prompt library insert snippet ${prompt.text || ''}`.slice(0, 200),
+      iconHtml: svg(ICON.edit, 'ic'),
+      run: () => insertPrompt(prompt.text || ''),
+    })),
   ]);
 }
 
@@ -1146,6 +1160,7 @@ async function init() {
   on('settings', () => { renderTopbar(); });
   on('models', renderTopbar);
   on('personas', renderTopbar);
+  on('prompts', setupCommands);   // the palette lists saved prompts by name
   on('persona-changed', () => { renderTopbar(); renderThread(); });
   on('model-changed', () => { renderTopbar(); });
   on('foot', updateFoot);

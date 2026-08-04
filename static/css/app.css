@@ -631,7 +631,15 @@ button { cursor: pointer; background: none; border: 0; }
 .msg {
   position: relative; display: flex; flex-direction: column; gap: 6px;
   animation: rise .3s var(--spring);
+  /* Skip layout and paint for messages scrolled out of view. A long thread is
+     mostly off-screen, and every full renderThread() otherwise lays out all of
+     it. contain-intrinsic-size keeps a placeholder height so the scrollbar does
+     not jump as rows enter and leave. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
 }
+/* The last message streams, and skipping its paint would stall the tokens. */
+.msg:last-child { content-visibility: visible; }
 @keyframes rise { from { opacity: 0; transform: translateY(9px); } }
 
 .msg-user { align-items: flex-end; }
@@ -806,6 +814,58 @@ button { cursor: pointer; background: none; border: 0; }
   color: var(--fg-2); white-space: pre-wrap; word-break: break-word;
 }
 .tool-note { font-size: .72rem; color: var(--fg-3); font-style: italic; }
+
+/* answer variants — ‹ 2/3 › model */
+.variant-pager {
+  display: flex; align-items: center; gap: 3px;
+  font-size: .72rem; color: var(--fg-3);
+}
+.vp-arrow {
+  display: grid; place-items: center; width: 20px; height: 20px; padding: 0;
+  border-radius: var(--r-xs); color: var(--fg-3);
+  transition: background .13s, color .13s;
+}
+.vp-arrow:hover { background: var(--bg-hover); color: var(--fg); }
+.vp-arrow .ic { transform: rotate(180deg); }
+.vp-arrow.next .ic { transform: none; }
+.vp-count { font-family: var(--mono); font-size: .7rem; min-width: 24px; text-align: center; }
+.vp-model { font-family: var(--mono); font-size: .68rem; opacity: .8; margin-left: 3px; }
+.vp-open {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 7px;
+  padding: 2px 8px; border-radius: var(--r-xs);
+  color: var(--fg-3); font-size: .7rem;
+  transition: background .13s, color .13s;
+}
+.vp-open:hover { background: var(--bg-hover); color: var(--fg); }
+
+/* side-by-side compare */
+.cmp-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+}
+.cmp-col {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-2);
+  padding: 12px 14px 14px;
+}
+.cmp-col.on { border-color: var(--accent-line); }
+.cmp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.cmp-model { font-family: var(--mono); font-size: .78rem; font-weight: 600; color: var(--fg); }
+.cmp-badge {
+  padding: 1px 7px; border-radius: 999px; font-size: .64rem; font-weight: 650;
+  letter-spacing: .03em; text-transform: uppercase;
+  background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 78%, var(--fg));
+}
+.cmp-stats {
+  font-family: var(--mono); font-size: .68rem; color: var(--fg-3); margin-bottom: 10px;
+}
+.cmp-body {
+  font-size: .9em; max-height: min(52vh, 460px); overflow-y: auto;
+  padding-right: 4px; border-top: 1px solid var(--line-soft); padding-top: 10px;
+}
+.cmp-use { margin-top: 12px; align-self: flex-start; }
+.cmp-use[disabled] { opacity: .5; cursor: default; }
 
 .shimmer {
   background: linear-gradient(90deg, var(--fg-3) 20%, var(--fg) 45%, var(--fg-3) 70%);
@@ -1154,18 +1214,27 @@ select.inp { cursor: pointer; }
 
 /* segmented */
 .seg {
+  position: relative;
   display: inline-flex; padding: 3px; gap: 3px;
   background: var(--bg-3); border-radius: var(--r-sm); border: 1px solid var(--line);
 }
+/* The sliding surface. Sits under the buttons and moves by transform, so
+   switching costs a composite rather than a repaint of every option. */
+.seg-lens {
+  position: absolute; left: 3px; top: 3px; bottom: 3px;
+  border-radius: var(--r-xs); background: var(--surface);
+  box-shadow: var(--shadow-sm), var(--sheen);
+  opacity: 0; pointer-events: none;
+  transition: transform .26s var(--spring), width .26s var(--spring), opacity .16s;
+}
 .seg button {
+  position: relative;               /* above the lens */
   padding: 5px 12px; border-radius: var(--r-xs); font-size: .795rem;
   color: var(--fg-3); font-weight: 500;
-  transition: background .16s, color .16s, box-shadow .16s;
+  transition: color .16s;
 }
-.seg button.on {
-  background: var(--surface); color: var(--fg); font-weight: 620;
-  box-shadow: var(--shadow-sm), var(--sheen);
-}
+.seg button.on { color: var(--fg); font-weight: 620; }
+@media (prefers-reduced-motion: reduce) { .seg-lens { transition: opacity .16s; } }
 
 /* swatches */
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
