@@ -416,14 +416,20 @@ variables, `\frac`, `^`/`_`, `\sqrt`, `\text`, and ~90 symbols. Unknown commands
 render as their own literal text rather than vanishing, so a miss degrades to
 "readable" instead of silent data loss.
 
+**Blockquote lazy continuation — fixed in 1.0.** `renderMarkdown()` absorbed any
+non-blank line after a `>` line, so a fence, heading or list written directly
+under a quote rendered *inside* it. GFM ends the quote there, because lazy
+continuation carries **paragraph text only**. `opensBlock()` is the guard.
+
+It was deferred four times because it changes how existing chats render, so it
+was landed with a test covering both directions: fence, heading and list under a
+quote now render as siblings, while lazy paragraph continuation and multi-line
+quotes are byte-for-byte unchanged. **Re-run those six cases if the blockquote
+branch is ever touched** — the risk is not breaking the fix, it is silently
+breaking continuation.
+
 ### Known divergences, found by review and deliberately left
 
-- **A blockquote swallows the block after it.** Lazy continuation in
-  `renderMarkdown()` absorbs any non-blank line following a `>` line, so a code
-  fence or heading written directly under a quote renders *inside* the quote.
-  GFM ends the quote at the fence. The fix is a one-line guard on the break
-  condition, but it changes how existing chats render, so it wants a test rather
-  than a drive-by.
 - Python decorators are not highlighted: the `\b` in `\b([A-Za-z_$@#][\w$]*)\b`
   cannot match before `@` at the start of a line.
 - `codeBlock()` emits `data-code-id` and burns a `codeSeq` counter that nothing

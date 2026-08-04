@@ -294,6 +294,12 @@ let codeSeq = 0;
  * @param {string} src
  * @param {{highlight?: boolean}} opts  highlight:false skips tokenising (used while streaming)
  */
+/** Does this line start a block of its own, rather than continue a paragraph? */
+function opensBlock(line) {
+  return /^\s{0,3}(?:```|~~~|#{1,6}\s|[-*+]\s|\d{1,9}[.)]\s)/.test(line)
+    || /^\s{0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$/.test(line);
+}
+
 export function renderMarkdown(src, opts = {}) {
   const doHighlight = opts.highlight !== false;
   const text = String(src || '').replace(/\r\n?/g, '\n');
@@ -369,9 +375,19 @@ export function renderMarkdown(src, opts = {}) {
     // blockquote
     if (/^\s{0,3}>/.test(line)) {
       const body = [];
-      while (i < lines.length && (/^\s{0,3}>/.test(lines[i]) || (lines[i].trim() && body.length))) {
-        if (!/^\s{0,3}>/.test(lines[i]) && !lines[i].trim()) break;
-        body.push(lines[i].replace(/^\s{0,3}>\s?/, ''));
+      while (i < lines.length) {
+        const current = lines[i];
+        if (/^\s{0,3}>/.test(current)) {          // a real quote line
+          body.push(current.replace(/^\s{0,3}>\s?/, ''));
+          i++;
+          continue;
+        }
+        // Lazy continuation carries *paragraph* text only. A line that would
+        // open its own block ends the quote — without this, a fenced code block
+        // written directly under a quote was swallowed into it, which is the one
+        // place this renderer visibly disagreed with GFM.
+        if (!current.trim() || !body.length || opensBlock(current)) break;
+        body.push(current);
         i++;
       }
       out.push(`<blockquote>${renderMarkdown(body.join('\n'), opts)}</blockquote>`);
