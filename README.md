@@ -136,8 +136,17 @@ Generation is **sequential**, one model at a time, and that is deliberate rather
 than a limitation. Two loaded models is roughly 14.6 GB on a 16 GB machine —
 running them at once would evict one mid-answer or drive the machine into swap.
 
-Turns that called tools can't be compared yet: their results live in separate rows
-underneath, so swapping the answer would leave the wrong ones there.
+**Tools and comparison don't mix, in both directions.** A turn that called tools
+can't be compared — its results live in separate rows underneath, so swapping the
+answer would leave the wrong ones there. And a comparison itself runs with **no
+tools offered**, even in a chat that has them on: an answer lives inside one
+message, while a tool exchange is an assistant turn plus a row per result, and
+there is nowhere in a stored answer to keep them. Lantern says so with a toast
+rather than quietly comparing two different kinds of reply.
+
+A comparison that produces nothing — you stop it, or the model errors or returns
+an empty reply — puts the previous answer back untouched and reports the failure.
+The point of the feature is not losing the first answer.
 
 ## Thinking
 

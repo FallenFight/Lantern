@@ -164,9 +164,15 @@ export function toolsSupported(name = currentModel()) {
   return !!modelInfo(name)?.supports_tools && S.tools.length > 0;
 }
 
-/** Tool names to send with a request, or [] to send no tools array at all. */
-export function effectiveTools(chat = S.chat) {
-  if (!chat?.tools || !toolsSupported(currentModel(chat))) return [];
+/**
+ * Tool names to send with a request, or [] to send no tools array at all.
+ *
+ * `model` is a parameter because a comparison asks a model that is *not* the
+ * chat's: reading the chat's model here answered for the wrong one, so a
+ * tools-capable model could be asked with no tools, or the reverse.
+ */
+export function effectiveTools(chat = S.chat, model = currentModel(chat)) {
+  if (!chat?.tools || !toolsSupported(model)) return [];
   return S.tools.map((t) => t.name);
 }
 
@@ -177,9 +183,12 @@ export function effectiveTools(chat = S.chat) {
  * For a model we know nothing about, omitting is deliberate: sending
  * `think:false` would suppress the very output we need to see in order to
  * discover that the model can think at all.
+ *
+ * `model` is a parameter for the same reason as effectiveTools(): a comparison
+ * runs a model the chat is not set to.
  */
-export function effectiveThink(chat = S.chat) {
-  if (!thinkingSupported(currentModel(chat))) return null;
+export function effectiveThink(chat = S.chat, model = currentModel(chat)) {
+  if (!thinkingSupported(model)) return null;
   const value = chat?.think;
   if (value === undefined || value === null) return false;
   return value;

@@ -78,6 +78,9 @@ function appendMessagesFrom(chat, from) {
  * Rebuild one message node whose *shape* changed rather than its text — an
  * assistant turn that turns out to be a tool call loses its bubble and its
  * header, which the streaming painter cannot express.
+ *
+ * Returns whether it did the swap, so a caller that needs the screen to be
+ * right can fall back to a full render.
  */
 function replaceMessageNode(chat, index) {
   const thread = threadBox();
@@ -85,10 +88,11 @@ function replaceMessageNode(chat, index) {
   const old = thread?.children[index];
   // Only touch it when the DOM really is this message; the full render at the
   // end of the turn is what guarantees correctness.
-  if (!message || !old || old.dataset.id !== message.id) return;
+  if (!message || !old || old.dataset.id !== message.id) return false;
   const node = buildMessage(message, index);
   thread.replaceChild(node, old);
   wireCodeBlocks(node);
+  return true;
 }
 
 function updateEmptyState() {
@@ -300,6 +304,18 @@ function buildThinkBox(message) {
 
 const formatMs = (ms) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
+/**
+ * tok/s from a stats block, or null when Ollama did not report the pair.
+ *
+ * One definition for both the message footer and the compare columns — the two
+ * had the same arithmetic written out twice, which is the kind of duplication
+ * that drifts.
+ */
+function tokRate(stats) {
+  const { eval_count: tokens, eval_duration: ns } = stats || {};
+  return tokens && ns ? (tokens / (ns / 1e9)).toFixed(1) : null;
+}
+
 function buildActions(message, index) {
   const acts = el('div', { class: 'msg-acts' });
   const add = (icon, label, title, fn) => {
@@ -332,8 +348,8 @@ function buildActions(message, index) {
   add(ICON.trash, '', 'Delete message', () => deleteMessage(index));
 
   if (message.stats && S.settings?.show_stats !== false) {
-    const { eval_count: tokens, eval_duration: ns, prompt_eval_count: promptTokens } = message.stats;
-    const rate = tokens && ns ? (tokens / (ns / 1e9)).toFixed(1) : null;
+    const { eval_count: tokens, prompt_eval_count: promptTokens } = message.stats;
+    const rate = tokRate(message.stats);
     const parts = [];
     if (rate) parts.push(`${rate} tok/s`);
     if (message.ttftMs != null) parts.push(`${formatMs(message.ttftMs)} to first token`);
@@ -417,7 +433,12 @@ function compareWith(index, anchor) {
     title: shortModel(m.name),
     sub: already.has(m.name) ? 'already answered this' : (m.parameter_size || ''),
     on: already.has(m.name),
-    run: () => runAssistant(chat, { compareAt: index, model: m.name }),
+    run: () => {
+      // Comparisons run with no tools — say so rather than letting the answer
+      // quietly be a different kind of answer than the one it sits beside.
+      if (effectiveTools(chat).length) toast('Comparing without tools — a variant holds one answer');
+      runAssistant(chat, { compareAt: index, model: m.name });
+    },
   })));
 }
 
@@ -442,8 +463,7 @@ function buildVariantPager(message, index) {
 /** Per-variant figures. Speed is half the comparison on local models. */
 function variantStats(variant) {
   const s = variant.stats || {};
-  const rate = s.eval_count && s.eval_duration
-    ? (s.eval_count / (s.eval_duration / 1e9)).toFixed(1) : null;
+  const rate = tokRate(s);
   const parts = [];
   if (rate) parts.push(`${rate} tok/s`);
   if (variant.ttftMs != null) parts.push(`${formatMs(variant.ttftMs)} to first token`);
@@ -681,19 +701,30 @@ function applyVariant(message, variant) {
 async function selectVariant(chat, at, index) {
   const message = chat.messages[at];
   if (!message?.variants?.[index]) return;
+  // The pager is on screen while a *further* comparison streams into this same
+  // turn. Swapping the answer under a live stream leaves the painter appending
+  // new tokens onto the old text.
+  if (isStreaming(chat.id)) {
+    toast('Wait for the reply to finish', 'bad');
+    return;
+  }
+  if (message.variant === index) return;
   applyVariant(message, message.variants[index]);
   message.variant = index;
   await queueSaveFor(chat, true);
-  renderThread();
+  // One message changed, not the thread. renderThread() would also rebuild
+  // every code block and can pull a long chat back to the bottom.
+  if (chat.id !== S.chat?.id || !replaceMessageNode(chat, at)) renderThread();
 }
 
 /**
- * A turn that called tools cannot be compared yet: its results live in separate
+ * A turn that called tools cannot be compared: its results live in separate
  * `tool` messages after it, so swapping the answer would leave the wrong rows
- * underneath. Guarded rather than half-supported.
+ * underneath. A failed turn is excluded too — Retry is the action there, and an
+ * error is not an answer worth keeping beside a real one.
  */
 const comparable = (message) => message?.role === 'assistant'
-  && !message.pending && !message.tool_calls?.length;
+  && !message.pending && !message.error && !message.tool_calls?.length;
 
 /**
  * Run every tool call from one assistant turn and append a `tool` message for
@@ -783,14 +814,27 @@ export async function runAssistant(chat = S.chat, opts = {}) {
   const visible = () => S.chat?.id === chat.id;
 
   const persona = currentPersona(chat);
-  const think = effectiveThink(chat);
-  const toolNames = effectiveTools(chat);
+  // Both answer for the model actually being asked, which in a comparison is
+  // not the chat's model.
+  const think = effectiveThink(chat, model);
+  // A comparison runs with no tools. A variant is one answer on one message,
+  // and a tool exchange is an assistant turn plus a `tool` row per result —
+  // there is nowhere inside a variant to keep them, and appending them beside a
+  // turn in the middle of the thread corrupts the history. See NOTES.md.
+  const toolNames = compareAt === null ? effectiveTools(chat, model) : [];
 
-  // Keep what is on screen now, so an abort can put it back.
+  // Keep what is on screen now, so a comparison that produces nothing usable
+  // can put it back exactly as it was.
   const restore = target ? snapshotVariant(target) : null;
-  if (target && !Array.isArray(target.variants)) {
-    target.variants = [restore];
-    target.variant = 0;
+  const freshVariants = !!target && !Array.isArray(target.variants);
+  let restoreAt = 0;
+  if (target) {
+    if (freshVariants) {
+      target.variants = [restore];
+      target.variant = 0;
+    } else {
+      restoreAt = Math.min(Math.max(target.variant ?? 0, 0), target.variants.length - 1);
+    }
   }
 
   const abort = new AbortController();
@@ -922,10 +966,15 @@ export async function runAssistant(chat = S.chat, opts = {}) {
       if (!calls.length) {
         placeholder.error = 'The model returned an empty response.';
       } else if (!withTools) {
-        placeholder.error = toolNames.length
-          ? `The model asked for another tool after the ${S.toolRoundLimit}-round limit, `
-            + 'and wrote no answer of its own.'
-          : 'The model tried to call a tool, but tools are off for this chat.';
+        if (toolNames.length) {
+          placeholder.error = `The model asked for another tool after the ${S.toolRoundLimit}-round limit, `
+            + 'and wrote no answer of its own.';
+        } else if (compareAt !== null) {
+          placeholder.error = 'The model tried to call a tool. Comparisons run without tools, '
+            + 'so nothing was called.';
+        } else {
+          placeholder.error = 'The model tried to call a tool, but tools are off for this chat.';
+        }
       }
     }
     return calls.slice(0, MAX_CALLS_PER_ROUND);
@@ -969,7 +1018,12 @@ export async function runAssistant(chat = S.chat, opts = {}) {
         const at = chat.messages.indexOf(placeholder);
         // Stopped part-way through executing tools: drop the results whose call
         // was never recorded, or history answers a question it doesn't contain.
-        if (at >= 0 && !placeholder.tool_calls?.length) chat.messages.length = at + 1;
+        // Only ever this run's own rows — a comparison streams into a turn in
+        // the *middle* of the thread, where truncating to `at + 1` deleted every
+        // message after it. Verified: it really did.
+        if (at >= 0 && placeholder !== target && !placeholder.tool_calls?.length) {
+          chat.messages.length = at + 1;
+        }
         if (!placeholder.content && !placeholder.thinking) {
           // splice in place — other code holds a reference to this array
           if (at >= 0 && placeholder !== target) chat.messages.splice(at, 1);
@@ -979,17 +1033,32 @@ export async function runAssistant(chat = S.chat, opts = {}) {
       placeholder.error = err.hint ? `${err.message} — ${err.hint}` : err.message;
       console.error(err);
     }
-    // A comparison that produced nothing must not leave the turn blank: put the
-    // answer that was on screen back.
-    if (target && restore && !target.content && !target.error) {
-      applyVariant(target, restore);
-      target.pending = false;
-    }
   } finally {
-    // Keep the new answer as a variant beside the old one, and select it.
-    if (target && target.content && target.variants) {
-      target.variants.push(snapshotVariant(target));
-      target.variant = target.variants.length - 1;
+    // A comparison either gained an answer or it did not, and both outcomes are
+    // decided here — the restore used to live in `catch`, which missed the paths
+    // that fail without throwing: an empty reply, or a round that ends in an
+    // error. Those left the turn showing nothing with the previous answer
+    // reachable only by reading the JSON on disk.
+    if (target && Array.isArray(target.variants)) {
+      if (target.content) {
+        // Keep the new answer beside the old one, and select it.
+        target.variants.push(snapshotVariant(target));
+        target.variant = target.variants.length - 1;
+      } else {
+        // Nothing usable — stopped before a token, an error, an empty reply.
+        // Put the turn back exactly as it was rather than blanking it or
+        // pushing a second copy of the answer that is already there.
+        const failed = target.error;
+        applyVariant(target, restore);
+        target.variant = restoreAt;
+        target.pending = false;
+        target.thinkingPending = false;
+        if (freshVariants) {
+          delete target.variants;
+          delete target.variant;
+        }
+        if (failed) toast(failed, 'bad');
+      }
     }
     painter.stop();
     endRun(chat.id);

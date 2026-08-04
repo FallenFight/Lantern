@@ -540,6 +540,11 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] ⌘K palette, ⌘F find (step with ⏎), ⌘⇧F search all chats
 - [ ] New chat, rename, pin, archive, duplicate, branch, delete
 - [ ] Regenerate, edit-and-resend, delete a message
+- [ ] **Compare a reply that is *not* the last one**, page between the answers,
+      open the side-by-side view — then compare it again and **Stop** before the
+      first token. The turn must come back unchanged and the messages after it
+      must still be there. Every comparison bug hid behind "compare the last
+      reply", which is the only case anyone tests by hand
 - [ ] Settings: an accent, a theme, text size — each applies on the first click
 - [ ] Export markdown + JSON, and **back up everything**
 - [ ] `/usr/bin/python3 -m py_compile server.py`
@@ -630,7 +635,7 @@ Still to do — folded into the 0.9.5 plan below:
 
 ## Where things stand
 
-**Shipped: `v1.0.0`, and the repo is public.**
+**Shipped: `v1.0.1`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
@@ -642,7 +647,12 @@ with credentials stripped from the environment builds and runs.
 promise it carries is above, under *The 1.0 compatibility promise* — it is about
 the chat JSON on disk, not an API.
 
-**Unreleased on `main`:** the orphan-closing-tag strip. A `1.0.1` when convenient.
+**`1.0.1` is a bug-fix release**, and the only one so far that fixed something
+that *lost data*: the orphan-closing-tag strip, plus the comparison bug pass
+above — five bugs, two of which destroyed messages. No new features, no format
+change. The 1.0 compatibility promise holds: chats written by 1.0.0 open
+unchanged, and a message left with a single-entry `variants` array by the old
+failure path still loads.
 
 **Still not done, and the biggest gap:** the README has **no screenshots**. For a
 UI project that matters more than any prose in it. Three worth taking: the thread
@@ -686,6 +696,72 @@ append a message; the pager switches text, model, metrics and thinking together;
 the choice survives a reload. Gemma-4 produced 1,854 characters of reasoning to
 qwen's 4,027, and each stayed with its own variant — a useful accident, since it
 re-confirms that gemma reasons despite not advertising it.
+
+### The bug pass over it — five real ones, all from the same mistake
+
+Every one of them came from a single unstated assumption: **`runAssistant` was
+written for a run whose message is at the *end* of the array, and comparison put
+one in the middle.** They were found by operating the app against a scratch
+`LANTERN_DATA` seeded with a four-message chat, not by reading — the code reads
+fine.
+
+- **Stop during a comparison deleted the rest of the conversation.** The abort
+  path ran `chat.messages.length = at + 1` to drop tool results whose call was
+  never recorded. Correct when the turn is last; catastrophic when it is turn two
+  of six. Observed: two messages left of four, saved to disk. It is now guarded on
+  `placeholder !== target`.
+- **A comparison in a chat with tools on corrupted the history.** Tool results are
+  `push`ed to the end of the array while the compared turn sits in the middle, and
+  the payload is cut at the compared turn — so the model never saw its own tool
+  result, called `current_datetime` four times, hit the round limit and answered
+  "I do not have access to a real-time clock". The chat went from 4 messages to
+  12, the compared turn was left **blank**, and its original answer survived only
+  inside `variants[0]` with no pager to reach it. Observed exactly as described.
+- **Stopping a comparison before the first token duplicated the answer.** The
+  restore put the old answer back on the message, and the `finally` block then
+  snapshotted that same message into a *second* variant — a pager reading `2/2`
+  with the identical text on both sides.
+- **A comparison that failed lost the answer it was supposed to keep.** The
+  restore lived in `catch`, so it only ran for something that *threw*. An empty
+  reply and a round that ends in `placeholder.error` fail without throwing, and
+  left the turn showing an error with the previous answer unreachable.
+- **The pager was live while a further comparison streamed into the same turn.**
+  Clicking ‹ mid-stream ran `applyVariant()` on the message the painter was
+  appending to.
+
+**The fix that mattered most was a design decision, not a patch: a comparison
+runs with no tools.** A variant is one answer on one message; a tool exchange is
+an assistant turn plus a `tool` row per result. There is nowhere inside a variant
+to put them, and appending them beside a mid-thread turn is what corrupted the
+history. Making it work would mean variants that own a message *list* — a format
+change and a real feature, not a bug fix. The honest version is to refuse, and to
+say so with a toast rather than quietly compare a tool-using answer against one
+written without them.
+
+**The restore rule now lives in one place, `finally`, and reads as one sentence:**
+gained an answer → keep it beside the old one and select it; gained nothing → put
+the turn back exactly as it was and toast why. Splitting it across `catch` and
+`finally` is what let the non-throwing failures through. It also removes the
+single-entry `variants` array it would otherwise leave behind, so a comparison
+that produced nothing leaves no trace at all.
+
+**`effectiveThink()` and `effectiveTools()` take the model being asked.** They
+read `currentModel(chat)`, and a comparison deliberately does *not* change the
+chat's model — so the request was built from the capabilities of a model that was
+not the one answering. `regenerateWith` never hit this because it sets
+`chat.model` first.
+
+**Two optimisations, both small and both real.** `selectVariant()` rebuilt the
+whole thread to change one message; it now uses `replaceMessageNode()` (which
+returns a boolean and falls back to a full render), which also stops a long chat
+jumping to the bottom when you page between answers. And the tok/s arithmetic was
+written out twice, in the message footer and the compare columns — one `tokRate()`
+now, because two copies of a formula drift.
+
+**Left alone, deliberately:** a reply that is *entirely* thinking with no content
+renders as an empty bubble. Seen with qwen3.5-9b answering a tool result inside
+its reasoning — 26 tokens out, all of them thinking. It predates comparison and is
+not part of it.
 
 ### The original design, for the parts not yet built
 
