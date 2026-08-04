@@ -303,6 +303,23 @@ query strings, relative paths and `mailto:` pass through untouched.
 **The lesson: sanitise against the string the browser will act on, not the one
 you are holding.**
 
+**Every `innerHTML` sink was audited before going public**, since a public repo
+raises the cost of a hole. The result, and the shape to preserve:
+
+- Message bodies go through `renderMarkdown()` or `escapeHtml()` — both paths
+  sanitise, neither can be reached with raw text.
+- Icon assignments are module constants (`svg(ICON.x)`), never data.
+- **Every name a user or model controls is rendered with `text:`, not `html:`** —
+  chat titles, persona names, tool names, and the prompt-library names added in
+  0.9.5. `el()`'s `html:` option is only ever handed static markup.
+- The one exception was the bootstrap failure screen, which interpolated
+  `err.message` into `innerHTML`. Not realistically attacker-controlled, but it
+  was the single place a dynamic string reached a sink unescaped, so it is built
+  from nodes now.
+
+**If you add a sink, the rule is: `text:` for anything a person or a model can
+influence.**
+
 **Micro-optimising the renderer is not worth it — measured.** `highlight()` now
 caches its keyword `Set` and compiled regex per language, worth **0.009 ms per
 code block (~0.27 ms on a 30-block thread)**. A single-pass `escapeHtml()` is

@@ -1110,12 +1110,15 @@ async function init() {
   try {
     await loadBootstrap();
   } catch (err) {
-    document.body.innerHTML =
-      `<div style="padding:40px;font-family:system-ui;line-height:1.6">
-        <h2>Lantern can't reach its own server</h2>
-        <p style="color:#888">${err.message}</p>
-        <p>Restart it with <code>python3 server.py</code>.</p>
-      </div>`;
+    // Built as nodes rather than interpolated into innerHTML: err.message is the
+    // only dynamic string on this path, and a failure screen is a bad place to
+    // discover that an error text contained markup.
+    document.body.textContent = '';
+    document.body.append(el('div', { style: 'padding:40px;font-family:system-ui;line-height:1.6' },
+      el('h2', { text: "Lantern can't reach its own server" }),
+      el('p', { style: 'color:#888', text: err.message || 'Unknown error' }),
+      el('p', {}, 'Restart it with ', el('code', { text: 'python3 server.py' }), '.'),
+    ));
     return;
   }
 
