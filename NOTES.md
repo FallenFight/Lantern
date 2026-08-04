@@ -546,7 +546,38 @@ rounds per reply. `num_ctx` defaults to 32768. The repo is on GitHub but
 Then **1.0**: README screenshots, folders, testing the stranger path with
 credentials unset, and flipping the repo public.
 
-### The comparison design, so it does not have to be re-derived
+### Comparison — built, minus the side-by-side view
+
+Landed: variants, the pager, sequential generation, per-variant metrics.
+Still to do: the compare view that lays two answers out in columns.
+
+**It reuses `runAssistant` rather than forking it.** Comparing streams *over* the
+existing turn — the old answer is snapshotted into `variants[0]`, the message is
+cleared and re-answered in place with the whole normal pipeline (painter, tool
+loop, round cap), and the result is appended as another variant. Keeping the
+message id means the DOM node, the painter's per-frame lookup and any open
+find-marks all stay attached. Two things had to change for it:
+
+- **`buildPayloadMessages(chat, limit)`** — the turn being re-answered sits
+  *inside* the array, not at the end, so everything from it onward is cut. Without
+  that the model is shown its own later replies.
+- **The abort path must not splice.** Stopping a normal run deletes an empty
+  placeholder; stopping a comparison must instead put the previous answer back,
+  or the turn is left blank.
+
+**The selected variant is mirrored onto the message.** `content`, `model`,
+`stats` and the rest are copied up from `variants[variant]`, so saving, export,
+search, and `buildPayloadMessages()` need no knowledge of variants at all. The
+alternative — reading through an index everywhere — would have touched every
+consumer.
+
+**Verified:** two models answering one turn stores two variants and *does not*
+append a message; the pager switches text, model, metrics and thinking together;
+the choice survives a reload. Gemma-4 produced 1,854 characters of reasoning to
+qwen's 4,027, and each stayed with its own variant — a useful accident, since it
+re-confirms that gemma reasons despite not advertising it.
+
+### The original design, for the parts not yet built
 
 Generation is **sequential**, and the rejected-approaches table above has the
 memory arithmetic for why parallel cannot work here. The rest:
