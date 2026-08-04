@@ -337,7 +337,8 @@ native/main.swift    NSWindow + WKWebView host, runs the server as a child
 lantern              terminal launcher (starts ollama if needed)
 build-app.sh         assembles dist/Lantern.app
 tools/make_icon.py   renders the app icon procedurally (no Pillow)
-tools/lint.py        checks the front end against traps that already bit us
+tools/lint.py        checks code and docs against traps that already bit us
+tools/hooks/         git hooks — `git config core.hooksPath tools/hooks`
 NOTES.md             design decisions, rejected approaches, traps
 CLAUDE.md            standing constraints, for coding assistants
 static/
@@ -356,7 +357,7 @@ static/
 data/                created on first run (or ~/Library/Application Support/Lantern)
 ```
 
-~8,100 lines total. Chat writes are atomic (temp file + `os.replace`).
+Under 9,000 lines. Chat writes are atomic (temp file + `os.replace`).
 
 ## Notes
 

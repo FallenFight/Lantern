@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
 """
-Check the front end against traps this project has already been bitten by.
+Check this project against mistakes it has already made.
 
 Not a general linter — there is no dependency budget for one, and a generic rule
-set would drown the real signal. Every check here corresponds to a bug that
-actually shipped, and is documented in NOTES.md. When a new trap costs real time,
-add a check.
+set would drown the real signal. Every check corresponds to something that
+actually shipped broken, and is written up in NOTES.md. When a new trap costs
+real time, add a check here.
 
-    python3 tools/lint.py            # exits 1 if anything is flagged
+    python3 tools/lint.py            # check the working tree
+    python3 tools/lint.py <dir>      # check any extracted tree (used to prove
+                                     # a check catches the commit that broke it)
+
+Exits 1 if anything is flagged.
 """
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from pathlib import Path
 
-JS = sorted((Path(__file__).resolve().parent.parent / "static" / "js").glob("*.js"))
+# --------------------------------------------------------------------------
+# code checks
+# --------------------------------------------------------------------------
 
 # Anything that changes appearance must go through applyVisual(), which mutates
-# S.settings locally *before* repainting. patchSettings() only updates it once the
-# server answers, so a repaint straight after paints the previous value.
+# S.settings locally *before* repainting. patchSettings() only updates it once
+# the server answers, so a repaint straight after paints the previous value.
 VISUAL_KEYS = ("theme", "accent", "font_size", "density", "bubble_width")
 
 LISTENER = re.compile(r"addEventListener\(\s*['\"](\w+)['\"]\s*,\s*([A-Za-z_$][\w$]*)\s*\)")
@@ -38,44 +45,190 @@ def declared_params(source: str, name: str):
     return None
 
 
-def main() -> int:
+def check_js(root: Path) -> list:
     problems = []
-    sources = {path: path.read_text(encoding="utf-8") for path in JS}
+    paths = sorted((root / "static" / "js").glob("*.js"))
+    sources = {p: p.read_text(encoding="utf-8") for p in paths}
     combined = "\n".join(sources.values())
 
     for path, source in sources.items():
-        # 1. A listener is called with the Event as its first argument. Hand it a
-        #    function that declares a parameter and the Event *becomes* that
-        #    parameter — a default value only applies to `undefined`. This is how
-        #    the Stop button silently did nothing for months:
-        #    addEventListener('click', stopGeneration) meant
-        #    S.runs.get(MouseEvent).
+        # A listener is called with the Event as its first argument. Hand it a
+        # function that declares a parameter and the Event *becomes* that
+        # parameter — a default only applies to `undefined`. This is how the Stop
+        # button silently did nothing: addEventListener('click', stopGeneration)
+        # meant S.runs.get(MouseEvent).
         for event, fname in LISTENER.findall(source):
             params = declared_params(combined, fname)
             if params:
                 problems.append(
                     f"{path.name}: addEventListener('{event}', {fname}) — "
                     f"{fname}({params}) takes a parameter, so the Event becomes it. "
-                    f"Wrap it: () => {fname}()"
-                )
+                    f"Wrap it: () => {fname}()")
 
-        # 2. A visual setting persisted without the optimistic local update.
         for line_no, line in enumerate(source.split("\n"), 1):
-            if "applyVisual" in line or "function applyVisual" in line:
+            if "applyVisual" in line:
                 continue
             match = re.search(r"patchSettings\(\{\s*(\w+)", line)
             if match and match.group(1) in VISUAL_KEYS:
                 problems.append(
                     f"{path.name}:{line_no}: patchSettings({{ {match.group(1)} }}) — "
-                    f"use applyVisual() so the repaint sees the new value"
-                )
+                    f"use applyVisual() so the repaint sees the new value")
+    return problems
+
+
+# --------------------------------------------------------------------------
+# documentation checks
+# --------------------------------------------------------------------------
+#
+# README has shipped wrong four times: a stale model name, a claim that Lantern
+# never sent tools that survived a whole release, and the line count twice. A
+# prose rule in CLAUDE.md did not stop it, because a prose rule only works if
+# someone chooses to look. These fail loudly instead.
+
+COUNT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+               "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+               "twelve": 12}
+NUMBER_WORDS = {v: k for k, v in COUNT_WORDS.items()}
+
+COUNTED_SOURCES = ("server.py", "static/js", "static/css", "static/index.html",
+                   "native", "tools")
+
+
+def server_literal(root: Path, name: str):
+    """Pull a literal assignment out of server.py without importing it."""
+    tree = ast.parse((root / "server.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            try:
+                return ast.literal_eval(node.value)
+            except ValueError:
+                return None
+    return None
+
+
+def registered_tools(root: Path) -> list:
+    """Top-level keys of the TOOLS registry, by position in the file."""
+    source = (root / "server.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "TOOLS" for t in node.targets):
+            return [k.value for k in node.value.keys if isinstance(k, ast.Constant)]
+    return []
+
+
+def source_line_count(root: Path) -> int:
+    total = 0
+    for rel in COUNTED_SOURCES:
+        target = root / rel
+        if target.is_file():
+            total += len(target.read_text(encoding="utf-8", errors="replace").split("\n"))
+        elif target.is_dir():
+            for path in sorted(target.rglob("*")):
+                if path.is_file() and path.suffix in (".py", ".js", ".css", ".html", ".swift"):
+                    total += len(path.read_text(encoding="utf-8", errors="replace").split("\n"))
+    return total
+
+
+def check_docs(root: Path) -> list:
+    problems = []
+    readme_path = root / "README.md"
+    if not readme_path.is_file():
+        return ["README.md is missing"]
+    readme = readme_path.read_text(encoding="utf-8")
+
+    # 1. Every registered tool must be named in the README, and the count word
+    #    beside "ship" must match. README claimed one tool for a whole release
+    #    after there were two.
+    tools = registered_tools(root)
+    for name in tools:
+        if name not in readme:
+            problems.append(f"README.md: tool `{name}` is registered in server.py "
+                            f"but never mentioned")
+    # Scope the count to the Tools section — "Five ship (Default, Terse, …)" in
+    # the Personas section is a different, correct claim. Flatten whitespace
+    # first: the claim wraps as "… cannot know. Three\nship so far", so anything
+    # line-based misses it.
+    tools_section = re.search(r"## Tools\n(.*?)(?=\n## )", readme, re.S)
+    if tools_section and tools:
+        flat = re.sub(r"\s+", " ", tools_section.group(1))
+        for sentence in re.findall(r"[^.]*\bships?\b[^.]*", flat, re.I):
+            for token in re.findall(r"\b([A-Za-z]+|\d+)\b", sentence):
+                count = (int(token) if token.isdigit()
+                         else COUNT_WORDS.get(token.lower()))
+                if count is None:
+                    continue
+                if count != len(tools):
+                    problems.append(
+                        f"README.md: the Tools section says \"{token}\" but "
+                        f"{len(tools)} tools are registered "
+                        f"({', '.join(tools)})")
+                break
+
+    # 2. A default quoted in prose must equal the real default. num_ctx had five
+    #    stale references when it changed from 8192.
+    params = (server_literal(root, "DEFAULT_SETTINGS") or {}).get("default_params", {})
+    num_ctx = params.get("num_ctx")
+    if num_ctx:
+        for rel in ("README.md", "static/js/modals.js"):
+            target = root / rel
+            if not target.is_file():
+                continue
+            text = target.read_text(encoding="utf-8")
+            quoted = set(re.findall(r"default (\d{4,6})", text))
+            quoted |= set(re.findall(r"(\d{4,6}) default", text))
+            for value in quoted:
+                if int(value) != num_ctx:
+                    problems.append(f"{rel}: quotes a default of {value}, but "
+                                    f"num_ctx is {num_ctx}")
+
+    # 3. No precise line-count claim — it drifted twice. A bounded claim is fine
+    #    because it can be checked, so check it.
+    if re.search(r"~\s?[\d,]{4,7}\s+lines", readme):
+        problems.append("README.md: states a precise line count, which goes stale "
+                        "every release. Use a bound like \"under 9,000 lines\"")
+    bound = re.search(r"[Uu]nder ([\d,]{3,7}) lines", readme)
+    if bound:
+        limit = int(bound.group(1).replace(",", ""))
+        actual = source_line_count(root)
+        if actual >= limit:
+            problems.append(f"README.md: claims under {limit:,} lines, but the "
+                            f"source is now {actual:,}")
+
+    # 4. Every internal doc link must resolve. Two docs were deleted this
+    #    session and nothing but a manual grep checked for danglers.
+    for path in sorted(root.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for target in re.findall(r"\]\(([^)#]+\.md)\)", text):
+            if not (root / target).is_file():
+                problems.append(f"{path.name}: links to {target}, which does not exist")
+
+    # 5. A tracked source file nobody documented. Basenames only — the Layout
+    #    block is an indented tree, not full paths.
+    layout = re.search(r"## Layout\n+```\n(.*?)```", readme, re.S)
+    if layout:
+        listed = layout.group(1)
+        for path in sorted((root / "static" / "js").glob("*.js")):
+            if path.name not in listed:
+                problems.append(f"README.md: {path.name} is not in the Layout block")
+        for path in sorted((root / "tools").glob("*.py")):
+            if path.name not in listed:
+                problems.append(f"README.md: tools/{path.name} is not in the Layout block")
+    return problems
+
+
+def main() -> int:
+    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else \
+        Path(__file__).resolve().parent.parent
+    problems = check_js(root) + check_docs(root)
 
     for problem in problems:
         print(f"  {problem}")
     if problems:
         print(f"\n{len(problems)} problem(s). See 'Before you ship' in NOTES.md.")
         return 1
-    print(f"clean — {len(sources)} files, {len(LISTENER.findall(combined))} bare listeners checked")
+    print(f"clean — code and docs consistent ({root.name})")
     return 0
 
 

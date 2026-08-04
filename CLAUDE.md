@@ -42,18 +42,40 @@ They have gone missing twice.
   been wrong before (a stale model name, a line count off by 750, a claim that
   tools were never sent). If a change adds a trap or a rejected approach, it goes
   in `NOTES.md` while the reasoning is still fresh.
-- Usage credits are a real constraint: fewer, better-targeted checks, not fewer
-  verified claims.
+- Prefer fewer, better-targeted checks over exhaustive ones — but never fewer
+  *verified* claims. One decisive test beats five exploratory ones.
 
 ## Before finishing
 
+Both run automatically on every commit, once per clone:
+
 ```bash
-python3 tools/lint.py                      # traps that have already bitten us
+git config core.hooksPath tools/hooks
+```
+
+To run them by hand:
+
+```bash
+python3 tools/lint.py                      # traps that have bitten us, plus
+                                           # doc claims checked against the code
 /usr/bin/python3 -m py_compile server.py   # the 3.9 fallback must keep working
 ```
 
+`tools/lint.py` verifies what prose cannot be trusted to: every registered tool
+is named in the README, the tool count matches, quoted defaults equal the real
+ones, doc links resolve, and no file is missing from the Layout block. A prose
+rule did not stop README shipping wrong four times; this does.
+
 Then the click-through list in `NOTES.md` → **Before you ship**. It is two
 minutes and it catches the class of bug that reading code does not.
+
+## Picking up where the last session left off
+
+`NOTES.md` → **Where things stand** has the current version, what shipped, and
+the next release with its design already worked out. `NOTES.md` → **Still open**
+is the ranked backlog, and **Decisions that were considered and rejected** exists
+so nobody re-proposes something that was already ruled out — check it before
+suggesting a feature.
 
 ## Running it
 

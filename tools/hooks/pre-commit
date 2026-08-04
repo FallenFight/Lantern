@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# Runs before every commit. Activate once per clone with:
+#
+#     git config core.hooksPath tools/hooks
+#
+# Two gates, both cheap enough to run every time:
+#   - tools/lint.py   traps that already shipped, plus doc/code consistency
+#   - py_compile      server.py must stay Python 3.9-compatible, because the app
+#                     falls back to the /usr/bin/python3 that ships with macOS
+#
+# Bypass with `git commit --no-verify` when you genuinely mean to.
+
+set -e
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+# Prefer the system 3.9 so a 3.10+ syntax slip cannot pass unnoticed.
+if [ -x /usr/bin/python3 ]; then
+    PY=/usr/bin/python3
+else
+    PY=python3
+fi
+
+if ! "$PY" tools/lint.py; then
+    echo
+    echo "pre-commit: lint failed. Fix it, or commit with --no-verify." >&2
+    exit 1
+fi
+
+if ! "$PY" -m py_compile server.py; then
+    echo
+    echo "pre-commit: server.py does not compile on $($PY -V 2>&1)." >&2
+    exit 1
+fi

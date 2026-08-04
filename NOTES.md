@@ -435,8 +435,10 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] **Docs pass.** Does `README.md` still describe what the app does? Does this
       file have the new traps? Is anything in `CLAUDE.md` now untrue? Every
       feature or major change owns its documentation — README has shipped wrong
-      three times (a stale model name, a line count off by 750, and a claim that
-      Lantern never sent tools, which stayed for a whole release after it did)
+      **four** times (a stale model name, a claim that Lantern never sent tools
+      which survived a whole release, and the line count twice). The line count
+      is now deliberately vague — "under 9,000 lines" — because a precise one
+      drifts every release and nobody notices
 - [ ] Reload with a reply in flight; switch chats mid-reply
 
 Also run:
@@ -505,13 +507,60 @@ Menus, modals, palette and toasts use `--panel` (97-98% opaque), not
 `--glass-deep`. Blur alone did not make them readable over a busy thread, and
 raising opacity let the blur drop from 28-34px to 14px, which is cheaper.
 
-Still to do:
+Still to do — folded into the 0.9.5 plan below:
 
 - The wash is weaker than the reference; it wants to be bolder near the top.
 - Sliding lens for the segmented controls in Settings (same treatment as the
   sidebar) — currently a static `.on` background.
 - The composer could take the same lens treatment on its send button.
 - Light theme has had far less attention than dark on all of the above.
+
+## Where things stand
+
+**Shipped: `v0.9.1`.** Tool calling is complete — `current_datetime`,
+`search_chats`, `calculate` — discoverable from the empty state, capped at four
+rounds per reply. `num_ctx` defaults to 32768. The repo is on GitHub but
+**private until 1.0**.
+
+**Next up is 0.9.5**, designed but not started:
+
+1. **Model comparison** — the headline. Design below.
+2. **Prompt library** — the clearest gap against Msty. Personas cover *system*
+   prompts; there is nothing for reusable *user* prompts. ⌘⇧P is taken; the
+   palette is the natural home.
+3. **Two free UI wins** — `content-visibility: auto` on off-screen messages (a
+   real performance win on long threads, not decoration) and the sliding lens on
+   the Settings segmented controls. View Transitions were considered for chat
+   switching but need Safari 18+/macOS 15 while the bundle declares
+   `LSMinimumSystemVersion 11.0`, so they need feature detection or skipping.
+
+Then **1.0**: README screenshots, folders, testing the stranger path with
+credentials unset, and flipping the repo public.
+
+### The comparison design, so it does not have to be re-derived
+
+Generation is **sequential**, and the rejected-approaches table above has the
+memory arithmetic for why parallel cannot work here. The rest:
+
+- **Variants live on the assistant message**, not in a message tree. Open WebUI
+  uses a tree (`groupedMessageIds` keyed by model index, `groupedMessageIdsIdx`
+  for the visible one per model) because it runs many models at once. Lantern
+  deliberately does not, so the flat `messages` array stays: the assistant
+  message grows `variants: [{model, content, stats, ttftMs, …}]` plus a selected
+  index, and top-level `content` mirrors the selection — so
+  `buildPayloadMessages()` and history replay need no changes at all.
+- **"Compare with…"** on a reply, shaped like the existing *Regenerate with
+  another model*, **appends** a variant instead of replacing the answer.
+  `S.runs` already allows only one run per chat, so sequencing is free.
+- **A pager on the message** (`‹ 2/2 › gemma-4-12B`) switches which variant is
+  live in the conversation.
+- **A compare view** lays variants out in columns — static text, no streaming,
+  so it costs nothing to render.
+- **Show the metrics.** Lantern already measures TTFT, tok/s and token counts.
+  Msty and Open WebUI show text side by side; showing *speed and length beside
+  quality* is the differentiator, and on local models that trade is the actual
+  decision. Open WebUI's thumbs-up leaderboard idea becomes nearly free once
+  variants exist.
 
 ## Still open
 
