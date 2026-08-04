@@ -46,7 +46,11 @@ export const ICON = {
   archive: '<path d="M3 7h18v3H3zM5 10v10h14V10M9 14h6"/>',
   up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   swap: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
-  tool: '<path d="M14.5 6.5a3.5 3.5 0 004.6 4.6l-8 8a2.6 2.6 0 01-3.7-3.7l8-8zM14.5 6.5 17 4M4 8l3 3"/>',
+  // One closed outline: jaw, then handle. The previous path had two strays —
+  // `M14.5 6.5 17 4` is a moveto followed by an *implicit lineto*, which drew a
+  // stick out of the head, and `M4 8l3 3` was a detached slash. It is also in
+  // index.html; the two must change together.
+  tool: '<path d="M21 4.2a6 6 0 01-7.6 7.6l-7 7a2.2 2.2 0 01-3.2-3.2l7-7a6 6 0 017.6-7.6l-3.5 3.5 3.2 3.2z"/>',
   compare: '<rect x="3" y="4" width="7.5" height="16" rx="1.5"/><rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/>',
 };
 

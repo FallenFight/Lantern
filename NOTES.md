@@ -34,6 +34,16 @@ Consequences worth knowing:
   Smooth gradients compress worse than flat black, so the `.icns` went from
   380 KB to 503 KB and is now half the bundle. That is the price of the glow;
   the alternative is banding.
+- **The `tool` icon shipped broken from 0.9.0 to 1.0.1** and nobody noticed,
+  because at 18px a wrong path still reads as *some* small grey mark. Magnified
+  it was a blob with a stick out of one side and a slash floating beside it. Two
+  causes, both worth knowing: `M14.5 6.5 17 4` is a moveto followed by an
+  **implicit lineto** — a bare coordinate pair after `M` draws a line, it does
+  not move again — and `M4 8l3 3` was simply a leftover subpath. It is one closed
+  outline now. Like the app mark, it lives in **two** places that must change
+  together: `ICON.tool` in `util.js`, and a hardcoded copy in the Tools pill in
+  `index.html`. **Check an icon by rendering it at 48px, not by reading the
+  path** — small marks hide their own defects.
 
 ## Naming
 
@@ -635,7 +645,7 @@ Still to do — folded into the 0.9.5 plan below:
 
 ## Where things stand
 
-**Shipped: `v1.0.1`, and the repo is public.**
+**Shipped: `v1.0.2`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
@@ -653,6 +663,11 @@ above — five bugs, two of which destroyed messages. No new features, no format
 change. The 1.0 compatibility promise holds: chats written by 1.0.0 open
 unchanged, and a message left with a single-entry `variants` array by the old
 failure path still loads.
+
+**`1.0.2` redraws the `tool` icon**, which had shipped malformed since 0.9.0 —
+see the icon note near the top of this file for the two SVG mistakes and the
+lesson. Cosmetic only, one release on its own because the Tools pill is on screen
+the whole time you use the app.
 
 **Still not done, and the biggest gap:** the README has **no screenshots**. For a
 UI project that matters more than any prose in it. Three worth taking: the thread

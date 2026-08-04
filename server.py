@@ -44,7 +44,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
