@@ -1,9 +1,9 @@
 // Settings / Personas / Models / Parameters dialogs.
 
 import {
-  S, emit, patchSettings, refreshModels, effectiveParams, effectiveSystem,
-  queueSaveChat, currentModel, currentPersona, modelInfo, thinkingSupported,
-  thinkingAdvertised,
+  S, emit, patchSettings, refreshModels, refreshPrompts, effectiveParams,
+  effectiveSystem, queueSaveChat, currentModel, currentPersona, modelInfo,
+  thinkingSupported, thinkingAdvertised,
 } from './store.js';
 import { api, pullStream } from './api.js';
 import {
@@ -23,6 +23,10 @@ export function openModal(title, body, foot = null, { wide = false } = {}) {
   $('#modal').hidden = false;
   $('#overlay').hidden = false;
   box.scrollTop = 0;
+  // Now that the dialog has a size, put every sliding lens where it belongs.
+  // See segmented(): deferring this to a frame callback fails on an occluded
+  // window, which produces no frames.
+  $$('.seg', box).forEach((seg) => seg.placeLens?.());
 }
 
 export function closeModal() {
@@ -48,8 +52,31 @@ function toggle(checked, onchange) {
   return el('label', { class: 'sw' }, input, el('i'));
 }
 
+/**
+ * Segmented control with a sliding indicator, matching the sidebar's lens.
+ *
+ * One element moved by transform rather than a background on each button, so
+ * the travel is composited rather than repainted — the same reasoning as
+ * moveLens() in main.js. The buttons keep an `.on` class for their text weight;
+ * only the surface underneath moves.
+ */
 function segmented(options, value, onpick) {
   const box = el('div', { class: 'seg' });
+  const lens = el('i', { class: 'seg-lens' });
+  box.append(lens);
+
+  const move = (button, animate = true) => {
+    if (!button || !button.offsetWidth) return false;   // not laid out yet
+    if (!animate) lens.style.transition = 'none';
+    lens.style.width = `${button.offsetWidth}px`;
+    lens.style.transform = `translateX(${button.offsetLeft - 3}px)`;
+    lens.style.opacity = '1';
+    // setTimeout, not rAF: rAF does not run while the window is occluded, which
+    // would leave the transition permanently disabled.
+    if (!animate) setTimeout(() => { lens.style.transition = ''; }, 0);
+    return true;
+  };
+
   for (const [val, label] of options) {
     const button = el('button', {
       class: val === value ? 'on' : '',
@@ -57,10 +84,27 @@ function segmented(options, value, onpick) {
       onclick: () => {
         $$('button', box).forEach((b) => b.classList.remove('on'));
         button.classList.add('on');
+        move(button);
         onpick(val);
       },
     });
     box.append(button);
+  }
+
+  // The control is built before it is in the document, so widths are 0 here and
+  // the lens cannot be positioned yet.
+  //
+  // Placement is deliberately **not** deferred to requestAnimationFrame or a
+  // ResizeObserver. Both are frame-driven, and a window that is occluded or
+  // backgrounded produces no frames — the lens then never appears at all, which
+  // is exactly what happened: Density opened bare while Message width looked
+  // fine only because it had been clicked. openModal() calls this once the
+  // dialog is on screen, which is a synchronous layout read at the one moment
+  // the answer is knowable.
+  box.placeLens = () => move(box.querySelector('button.on'), false);
+  // Keep the lens right if the dialog reflows later; harmless when it never fires.
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => box.placeLens()).observe(box);
   }
   return box;
 }
@@ -94,6 +138,83 @@ export function applyVisual(patch) {
   Object.assign(S.settings, patch);
   applyTheme();
   patchSettings(patch).catch(() => toast('Could not save that setting', 'bad'));
+}
+
+/* ═══════════════════════════ prompt library ═══════════════════════════ */
+
+/**
+ * Reusable *user* prompts — the thing you type, as opposed to a persona, which
+ * is the system prompt and applies to the whole conversation.
+ */
+export function openPrompts() {
+  const body = el('div');
+
+  const render = () => {
+    body.textContent = '';
+    body.append(el('div', { class: 'sr-sub', style: 'margin-bottom:12px' },
+      'Saved prompts you reuse. Insert one from the command palette (⌘K) or here.'));
+
+    if (!S.prompts.length) {
+      body.append(el('div', { class: 'p-none', text: 'No saved prompts yet.' }));
+    }
+
+    for (const prompt of S.prompts) {
+      const name = el('input', { class: 'inp', value: prompt.name });
+      const text = el('textarea', { class: 'inp', rows: 3, style: 'margin-top:7px' });
+      text.value = prompt.text || '';
+      const row = el('div', { class: 'card', style: 'padding:12px 14px;margin-bottom:10px' },
+        name, text,
+        el('div', { style: 'display:flex;gap:7px;margin-top:9px' },
+          el('button', {
+            class: 'btn btn-ghost', text: 'Insert',
+            onclick: () => { insertPrompt(prompt.text || ''); closeModal(); },
+          }),
+          el('button', {
+            class: 'btn btn-ghost', text: 'Save',
+            onclick: async () => {
+              await api.updatePrompt(prompt.id, { name: name.value.trim() || 'Untitled', text: text.value });
+              await refreshPrompts();
+              toast('Prompt saved');
+              render();
+            },
+          }),
+          el('button', {
+            class: 'btn btn-ghost danger', text: 'Delete',
+            onclick: async () => {
+              if (!confirm(`Delete "${prompt.name}"?`)) return;
+              await api.deletePrompt(prompt.id);
+              await refreshPrompts();
+              render();
+            },
+          })));
+      body.append(row);
+    }
+
+    body.append(el('button', {
+      class: 'btn btn-primary', text: 'New prompt',
+      onclick: async () => {
+        await api.createPrompt({ name: 'Untitled', text: '' });
+        await refreshPrompts();
+        render();
+      },
+    }));
+  };
+
+  render();
+  openModal('Prompt library', body);
+}
+
+/** Drop a saved prompt into the composer at the cursor. */
+export function insertPrompt(text) {
+  const input = $('#input');
+  if (!input) return;
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  input.value = input.value.slice(0, start) + text + input.value.slice(end);
+  const caret = start + text.length;
+  input.focus();
+  input.setSelectionRange(caret, caret);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /* ═══════════════════════════ settings ═══════════════════════════ */

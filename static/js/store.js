@@ -10,6 +10,7 @@ import { api } from './api.js';
 export const S = {
   settings: null,
   personas: [],
+  prompts: [],        // reusable user prompts (the library)
   models: [],
   running: [],
   chats: [],           // summaries for the sidebar
@@ -190,6 +191,7 @@ export async function loadBootstrap() {
   const data = await api.bootstrap();
   S.settings = data.settings;
   S.personas = data.personas || [];
+  S.prompts = data.prompts || [];
   S.chats = data.chats || [];
   S.models = data.models || [];
   S.running = data.running || [];
@@ -205,6 +207,7 @@ export async function loadBootstrap() {
   }
   emit('settings');
   emit('personas');
+  emit('prompts');
   emit('models');
   emit('chats');
 }
@@ -228,6 +231,14 @@ export async function refreshChatList() {
   const data = await api.chats();
   S.chats = data.chats || [];
   emit('chats');
+}
+
+/** Re-read the prompt library after an edit. */
+export async function refreshPrompts() {
+  const data = await api.prompts();
+  S.prompts = data.prompts || [];
+  emit('prompts');
+  return S.prompts;
 }
 
 export async function patchSettings(patch) {

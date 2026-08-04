@@ -44,7 +44,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "0.9.1"
+VERSION = "0.9.5"
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -111,6 +111,15 @@ DEFAULT_SETTINGS = {
         "num_batch": None,
     },
 }
+
+SEED_PROMPTS = [
+    ("Explain a concept", "Explain how HTTP keep-alive works, with a diagram."),
+    ("Review my text", "Tighten this paragraph without changing my voice:\n\n"),
+    ("Find the edge cases", "Review this for edge cases and failure modes, then rank "
+                            "them by how likely they are to bite:\n\n"),
+    ("Explain like I know nothing", "Explain this in plain English, assuming no "
+                                    "background, in under 150 words:\n\n"),
+]
 
 SEED_PERSONAS = [
     {
@@ -250,6 +259,10 @@ def personas_path() -> Path:
     return DATA / "personas.json"
 
 
+def prompts_path() -> Path:
+    return DATA / "prompts.json"
+
+
 def get_settings() -> dict:
     with _LOCK:
         stored = read_json(settings_path(), {})
@@ -328,6 +341,34 @@ def get_personas() -> list:
             write_json(personas_path(), {"personas": seeded})
             return seeded
         return data["personas"]
+
+
+def get_prompts() -> list:
+    """
+    Reusable *user* prompts — the thing you type, not the system prompt.
+
+    Seeded once with the same four the empty screen offers, so the library shows
+    what it is for instead of opening empty. An empty file after that is a real
+    answer: the user deleted them.
+    """
+    with _LOCK:
+        data = read_json(prompts_path(), None)
+        if isinstance(data, dict) and isinstance(data.get("prompts"), list):
+            return data["prompts"]
+        now = time.time()
+        seeded = [
+            {"id": new_id("q"), "name": name, "text": text,
+             "created": now, "updated": now}
+            for name, text in SEED_PROMPTS
+        ]
+        write_json(prompts_path(), {"prompts": seeded})
+        return seeded
+
+
+def save_prompts(prompts: list) -> list:
+    with _LOCK:
+        write_json(prompts_path(), {"prompts": prompts})
+        return prompts
 
 
 def save_personas(personas: list) -> list:
@@ -1159,6 +1200,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = {
                 "settings": get_settings(),
                 "personas": get_personas(),
+                "prompts": get_prompts(),
                 "chats": list_chats(),
                 "version": VERSION,
                 "tools": tool_catalog(),
@@ -1307,6 +1349,43 @@ class Handler(BaseHTTPRequestHandler):
                     save_settings({"default_persona": None})
                 return self.json_out({"ok": True, "removed": removed["id"]})
 
+        # ---- prompts -----------------------------------------------------
+        if parts == ["prompts"]:
+            if method == "GET":
+                return self.json_out({"prompts": get_prompts()})
+            if method == "POST":
+                body = self.body_json()
+                now = time.time()
+                prompt = {
+                    "id": new_id("q"),
+                    "name": (body.get("name") or "Untitled").strip()[:80],
+                    "text": body.get("text") or "",
+                    "created": now,
+                    "updated": now,
+                }
+                prompts = get_prompts()
+                prompts.append(prompt)
+                save_prompts(prompts)
+                return self.json_out(prompt, 201)
+
+        if len(parts) == 2 and parts[0] == "prompts":
+            prompts = get_prompts()
+            index = next((i for i, p in enumerate(prompts) if p["id"] == parts[1]), None)
+            if index is None:
+                return self.fail(404, "No such prompt")
+            if method in ("PUT", "PATCH"):
+                body = self.body_json()
+                for key in ("name", "text"):
+                    if key in body:
+                        prompts[index][key] = body[key]
+                prompts[index]["updated"] = time.time()
+                save_prompts(prompts)
+                return self.json_out(prompts[index])
+            if method == "DELETE":
+                removed = prompts.pop(index)
+                save_prompts(prompts)
+                return self.json_out({"ok": True, "removed": removed["id"]})
+
         # ---- backup / restore --------------------------------------------
         if parts == ["backup"] and method == "GET":
             ensure_dirs()
@@ -1320,6 +1399,7 @@ class Handler(BaseHTTPRequestHandler):
                 "exported": time.time(),
                 "settings": get_settings(),
                 "personas": get_personas(),
+                "prompts": get_prompts(),
                 "chats": chats,
             })
 
@@ -1354,6 +1434,8 @@ class Handler(BaseHTTPRequestHandler):
                     added += 1
                 if isinstance(body.get("personas"), list) and body["personas"]:
                     save_personas(body["personas"])
+                if isinstance(body.get("prompts"), list):
+                    save_prompts(body["prompts"])
                 if isinstance(body.get("settings"), dict):
                     save_settings(body["settings"])
             with _PARSE_LOCK:

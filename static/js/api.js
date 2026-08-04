@@ -38,6 +38,11 @@ export const api = {
   updatePersona: (id, body) => request(`/api/personas/${id}`, { method: 'PUT', body }),
   deletePersona: (id) => request(`/api/personas/${id}`, { method: 'DELETE' }),
 
+  prompts: () => request('/api/prompts'),
+  createPrompt: (body) => request('/api/prompts', { method: 'POST', body }),
+  updatePrompt: (id, body) => request(`/api/prompts/${id}`, { method: 'PUT', body }),
+  deletePrompt: (id) => request(`/api/prompts/${id}`, { method: 'DELETE' }),
+
   chats: () => request('/api/chats'),
   createChat: (body) => request('/api/chats', { method: 'POST', body }),
   getChat: (id) => request(`/api/chats/${id}`),

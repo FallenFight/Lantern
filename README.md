@@ -206,6 +206,16 @@ Capability detection has the same flaw as thinking: `/api/tags` claims none of
 the installed models support tools while `/api/show` correctly reports all three.
 Lantern reads `/api/show`. Details in [`NOTES.md`](NOTES.md).
 
+## Prompt library
+
+Prompts you reuse, saved and inserted in one action. **Not personas** — a persona
+is the *system* prompt and shapes the whole conversation; a saved prompt is the
+thing you type, for one turn. Use both together.
+
+⌘K, type a few letters of the name, and it drops into the composer at the cursor.
+Manage them from ⌘K → *Prompt library*. Four are seeded so the feature shows what
+it is for; delete them if they are not yours.
+
 ## Personas
 
 Named system prompts, switchable from the toolbar, ⌘P, or the palette. Each can

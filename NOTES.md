@@ -311,6 +311,23 @@ the XSS boundary, and that is a bad trade for a fifth of a millisecond. The cost
 that actually mattered (re-parsing the buffer while streaming, re-rendering per
 tool round) are handled elsewhere. Don't come back here looking for speed.
 
+**Frame callbacks do not fire on an occluded window, and that broke the sliding
+lens.** The segmented controls in Settings place their indicator by measuring the
+active button, which cannot happen before the control is in the document. The
+first attempt deferred that to `requestAnimationFrame`, retrying until widths
+existed — which on a window producing no frames is an unbounded loop that never
+succeeds. The Density control opened with no indicator at all; Message width only
+looked right because it had been clicked. A `ResizeObserver` fails the same way,
+being equally frame-driven. `openModal()` now calls `placeLens()` once the dialog
+is on screen: a synchronous layout read at the one moment the answer is knowable.
+**If placement depends on layout, do it when you know layout exists — not on a
+callback that assumes the window is visible.**
+
+**`content-visibility: auto` on `.msg`** skips layout and paint for messages
+scrolled out of view, with `contain-intrinsic-size` holding a placeholder height
+so the scrollbar does not jump. The last message is exempted — it is the one
+streaming, and skipping its paint would stall the tokens.
+
 **Visual settings apply optimistically.** `patchSettings()` awaits the server
 before updating `S.settings`, so calling `applyTheme()` straight after it
 repainted with the *previous* value — every theme/accent/size pick appeared to
@@ -526,30 +543,26 @@ Still to do — folded into the 0.9.5 plan below:
 
 ## Where things stand
 
-**Shipped: `v0.9.1`.** Tool calling is complete — `current_datetime`,
+**Shipped: `v0.9.5`.** Tool calling is complete — `current_datetime`,
 `search_chats`, `calculate` — discoverable from the empty state, capped at four
 rounds per reply. `num_ctx` defaults to 32768. The repo is on GitHub but
 **private until 1.0**.
 
-**Next up is 0.9.5**, designed but not started:
+0.9.5 delivered model comparison, the prompt library, the sliding lens on the
+Settings segmented controls, and `content-visibility` on off-screen messages.
 
-1. **Model comparison** — the headline. Design below.
-2. **Prompt library** — the clearest gap against Msty. Personas cover *system*
-   prompts; there is nothing for reusable *user* prompts. ⌘⇧P is taken; the
-   palette is the natural home.
-3. **Two free UI wins** — `content-visibility: auto` on off-screen messages (a
-   real performance win on long threads, not decoration) and the sliding lens on
-   the Settings segmented controls. View Transitions were considered for chat
-   switching but need Safari 18+/macOS 15 while the bundle declares
-   `LSMinimumSystemVersion 11.0`, so they need feature detection or skipping.
-
-Then **1.0**: README screenshots, folders, testing the stranger path with
+Next is **1.0**: README screenshots, folders, testing the stranger path with
 credentials unset, and flipping the repo public.
 
-### Comparison — built, minus the side-by-side view
+### Comparison — built
 
-Landed: variants, the pager, sequential generation, per-variant metrics.
-Still to do: the compare view that lays two answers out in columns.
+Variants, the pager, sequential generation, per-variant metrics, and the
+side-by-side compare view. The compare view is static text in columns with each
+answer's tok/s, TTFT, output tokens and thinking time — showing *speed beside
+quality* is the whole differentiator, since Msty and Open WebUI show only the
+text. On the first real comparison qwen thought for 65s and emitted 926 tokens to
+gemma's 32s and 428, for near-identical answers. That is the trade nobody else
+surfaces.
 
 **It reuses `runAssistant` rather than forking it.** Comparing streams *over* the
 existing turn — the old answer is snapshotted into `variants[0]`, the message is
