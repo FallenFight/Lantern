@@ -7,6 +7,7 @@ import {
   toolsSupported,
 } from './store.js';
 import { api, chatStream } from './api.js';
+import { openModal, closeModal } from './modals.js';
 import { renderMarkdown, wireCodeBlocks } from './markdown.js';
 import {
   $, el, svg, ICON, escapeHtml, copyText, toast, dur, num,
@@ -420,7 +421,7 @@ function compareWith(index, anchor) {
   })));
 }
 
-/** ‹ 2/3 › — switch which answer this turn shows. */
+/** ‹ 2/3 › — switch which answer this turn shows, or see them together. */
 function buildVariantPager(message, index) {
   const total = message.variants.length;
   const at = Math.min(message.variant ?? 0, total - 1);
@@ -432,7 +433,61 @@ function buildVariantPager(message, index) {
     el('button', { class: 'vp-arrow next', title: 'Next answer',
       html: svg(ICON.caret, 'ic ic-sm'), onclick: () => step(1) }),
     el('span', { class: 'vp-model', text: shortModel(message.model || '') }),
+    el('button', { class: 'vp-open', title: 'See the answers side by side',
+      html: `${svg(ICON.compare, 'ic ic-sm')}<span>Compare</span>`,
+      onclick: () => openCompare(index) }),
   );
+}
+
+/** Per-variant figures. Speed is half the comparison on local models. */
+function variantStats(variant) {
+  const s = variant.stats || {};
+  const rate = s.eval_count && s.eval_duration
+    ? (s.eval_count / (s.eval_duration / 1e9)).toFixed(1) : null;
+  const parts = [];
+  if (rate) parts.push(`${rate} tok/s`);
+  if (variant.ttftMs != null) parts.push(`${formatMs(variant.ttftMs)} to first token`);
+  if (s.eval_count) parts.push(`${num(s.eval_count)} out`);
+  if (variant.thinkMs) parts.push(`${formatMs(variant.thinkMs)} thinking`);
+  return parts;
+}
+
+/**
+ * The answers in columns.
+ *
+ * Static text — nothing streams here — so the cost is one render of content
+ * that already exists. Showing the metrics beside each answer is the point:
+ * on local models the real question is whether a slower model was worth it.
+ */
+function openCompare(index) {
+  const chat = S.chat;
+  const message = chat?.messages?.[index];
+  if (!message?.variants?.length) return;
+  const selected = Math.min(message.variant ?? 0, message.variants.length - 1);
+
+  const grid = el('div', { class: 'cmp-grid' });
+  message.variants.forEach((variant, i) => {
+    const body = el('div', { class: 'md' });
+    body.innerHTML = S.settings?.render_markdown === false
+      ? `<p>${escapeHtml(variant.content || '')}</p>`
+      : renderMarkdown(variant.content || '');
+    const column = el('div', { class: `cmp-col${i === selected ? ' on' : ''}` },
+      el('div', { class: 'cmp-head' },
+        el('span', { class: 'cmp-model', text: shortModel(variant.model || '—') }),
+        i === selected ? el('span', { class: 'cmp-badge', text: 'in use' }) : null),
+      el('div', { class: 'cmp-stats', text: variantStats(variant).join('  ·  ') || '—' }),
+      el('div', { class: 'cmp-body' }, body),
+      el('button', {
+        class: 'btn btn-ghost cmp-use',
+        text: i === selected ? 'Currently used' : 'Use this answer',
+        disabled: i === selected,
+        onclick: async () => { await selectVariant(chat, index, i); closeModal(); },
+      }));
+    grid.append(column);
+  });
+
+  openModal(`Compare ${message.variants.length} answers`, grid, null, { wide: true });
+  wireCodeBlocks(grid);
 }
 
 function startEdit(message, index) {
