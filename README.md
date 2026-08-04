@@ -124,6 +124,21 @@ Chats run **independently** — start a long reply in one, switch away, start
 another, and each writes only to its own conversation. A pulsing dot marks any
 chat that's mid-reply.
 
+## Comparing models
+
+Any reply can be answered again by a different model **without losing the first**.
+The turn grows a pager — `‹ 2/2 › qwen3.5-9b` — that switches which answer the
+conversation actually uses, and each answer keeps its own metrics. So you see the
+trade, not just the text: a 12B taking 8.9s to first token at 12.4 tok/s against a
+9B at 4.3s and 13.8 tok/s.
+
+Generation is **sequential**, one model at a time, and that is deliberate rather
+than a limitation. Two loaded models is roughly 14.6 GB on a 16 GB machine —
+running them at once would evict one mid-answer or drive the machine into swap.
+
+Turns that called tools can't be compared yet: their results live in separate rows
+underneath, so swapping the answer would leave the wrong ones there.
+
 ## Thinking
 
 The **Think** pill appears for models that can reason. Reasoning streams into a
@@ -357,7 +372,7 @@ static/
 data/                created on first run (or ~/Library/Application Support/Lantern)
 ```
 
-Under 9,000 lines. Chat writes are atomic (temp file + `os.replace`).
+Under 10,000 lines. Chat writes are atomic (temp file + `os.replace`).
 
 ## Notes
 
