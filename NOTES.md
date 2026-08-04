@@ -368,6 +368,49 @@ repainted with the *previous* value — every theme/accent/size pick appeared to
 need a second click. `applyVisual()` in `modals.js` mutates the local copy
 first, repaints, then persists. Use it for anything that changes appearance.
 
+## The update check — the one call that leaves the machine
+
+Added in 1.0.3. **Off by default**, because "offline unless you say otherwise" is
+a promise in `CLAUDE.md` and in the README, and this is the only thing in the app
+that can break it. It was raised before it was built rather than after.
+
+Why it exists at all: distribution is source-only, so there is no Sparkle-style
+updater and no `.app` that refreshes itself. Nothing told you a release had
+happened — you had to remember to look. The version now sits under the sidebar
+buttons, and with the check on it says `v1.0.2 → v1.1.0` with an accent dot when
+you are behind.
+
+Decisions in it worth keeping:
+
+- **The switch is enforced on the server, not the client.** `GET /api/update`
+  returns `{"enabled": false}` and makes no outbound request when the setting is
+  off. Gating it only in the front end would mean the guarantee held for the UI
+  and not for anything driving the API — the same reasoning as the tool registry
+  and the options allow-list.
+- **It is not part of `/api/bootstrap`.** Folding it in would make a launch with
+  no internet sit on a network timeout before the window appeared. It runs after
+  the UI is up, and a failure is a line of text in Settings, never a dialog.
+- **Nothing in GitHub's reply is trusted past three integers.** The tag is
+  matched against `v?\d+\.\d+\.\d+` and the link is *rebuilt* from those numbers.
+  The response's own `html_url` is ignored on purpose — it is attacker-shaped
+  data in the sense that matters (it decides where a user's click goes), and a
+  release can be named anything. Tested against a tag containing
+  `javascript:alert(1)`, a tag that is itself a URL, a missing tag, and a
+  non-JSON body: all four fall back to the hardcoded releases page, and an
+  `html_url` pointing at `evil.example` is dropped.
+- **Only a successful check is cached** (6 hours). Caching a failure would pin
+  "could not reach GitHub" onto the rest of the session after one flaky moment.
+- `check_update()` never raises. Being offline is the *normal* state for this
+  app, so it is a message, not an error page.
+
+**The README claim had to change and that is the point.** It said "The only
+network call is to your local Ollama", flatly. That went from true to
+conditionally false the moment this landed, and README has shipped wrong four
+times before. It now says what is actually true — nothing reaches out until you
+switch this on — and the Security section names the one call, where the gate is,
+and what is not trusted in the reply. **If you ever add a second outbound call,
+that section is the thing to update first.**
+
 ## The 1.0 compatibility promise
 
 1.0 is not "feature complete" — it is **"ready for strangers"**. The thing a
@@ -645,7 +688,7 @@ Still to do — folded into the 0.9.5 plan below:
 
 ## Where things stand
 
-**Shipped: `v1.0.2`, and the repo is public.**
+**Shipped: `v1.0.3`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
@@ -663,6 +706,10 @@ above — five bugs, two of which destroyed messages. No new features, no format
 change. The 1.0 compatibility promise holds: chats written by 1.0.0 open
 unchanged, and a message left with a single-entry `variants` array by the old
 failure path still loads.
+
+**`1.0.3` puts the version under the sidebar buttons** and adds an opt-in update
+check — the first thing in the app that can reach past your own machine, and the
+reasoning for how it is gated is in *The update check* above.
 
 **`1.0.2` redraws the `tool` icon**, which had shipped malformed since 0.9.0 —
 see the icon note near the top of this file for the two SVG mistakes and the

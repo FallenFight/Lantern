@@ -4,7 +4,7 @@ import {
   S, on, emit, loadBootstrap, refreshModels, refreshChatList, patchSettings,
   newChat, openChat, removeChat, queueSaveChat, flushChat, flushBeacon,
   currentModel, currentPersona, thinkingSupported, visionSupported, toolsSupported,
-  isStreaming, anyStreaming, thinkingAdvertised,
+  isStreaming, anyStreaming, thinkingAdvertised, refreshUpdate,
 } from './store.js';
 import { api } from './api.js';
 import {
@@ -1048,7 +1048,37 @@ function setupCommands() {
 
 /* ═══════════════════════════ init ═══════════════════════════ */
 
+/**
+ * The version, under the sidebar buttons.
+ *
+ * Silent unless there is something to say: it reads `v1.0.2` normally, and gains
+ * an accent dot and "update available" only once a check has actually come back
+ * saying so. Nothing here runs a check — that is `refreshUpdate()`, and it does
+ * nothing at all unless the setting is on.
+ */
+function renderVersionLine() {
+  const node = $('#foot-version');
+  if (!node) return;
+  if (!S.version) { node.hidden = true; return; }
+  node.hidden = false;
+  const stale = !!S.update?.outdated;
+  node.classList.toggle('stale', stale);
+  node.textContent = '';
+  if (stale) node.append(el('span', { class: 'vdot' }));
+  // Every one of these strings is server-derived; `text:` keeps it that way.
+  node.append(el('span', { text: stale ? `v${S.version} → v${S.update.latest}` : `v${S.version}` }));
+  node.title = stale
+    ? `Lantern ${S.update.latest} is out. You have ${S.version}. Click for the release notes.`
+    : 'Lantern version — click for Settings';
+}
+
 function wireButtons() {
+  $('#foot-version').addEventListener('click', () => {
+    // Outdated: straight to the notes for the release you'd be moving to.
+    // Otherwise Settings, where the check lives.
+    if (S.update?.outdated && S.update.url) window.open(S.update.url, '_blank');
+    else openSettings();
+  });
   $('#btn-new-chat').addEventListener('click', startNewChat);
   $('#btn-collapse').addEventListener('click', toggleSidebar);
   $('#btn-expand').addEventListener('click', toggleSidebar);
@@ -1168,12 +1198,19 @@ async function init() {
   on('model-changed', () => { renderTopbar(); });
   on('foot', updateFoot);
   on('streaming', () => renderTopbar());
+  on('update', renderVersionLine);
+  on('settings', renderVersionLine);   // the toggle can clear a stale badge
 
   renderSidebar();
   renderTopbar();
   renderThread();
+  renderVersionLine();
   restoreDraft();
   $('#input').focus();
+
+  // After the UI is up, never as part of it: a launch with no internet must not
+  // wait on a network timeout before the app appears.
+  refreshUpdate();
 
   // Preload so the first message does not pay a cold model load.
   if (S.settings.preload_default && S.settings.default_model && S.ollamaOk) {

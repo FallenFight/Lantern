@@ -44,7 +44,15 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.0.2"
+VERSION = "1.0.3"
+
+# The update check. Unauthenticated and read-only; GitHub allows 60 requests an
+# hour per IP, which one check per launch cannot come near.
+UPDATE_REPO = "FallenFight/Lantern"
+UPDATE_API = "https://api.github.com/repos/%s/releases/latest" % UPDATE_REPO
+UPDATE_PAGE = "https://github.com/%s/releases/latest" % UPDATE_REPO
+_UPDATE_CACHE = {"at": 0.0, "data": None}
+_UPDATE_TTL = 6 * 3600
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -85,6 +93,11 @@ DEFAULT_SETTINGS = {
     # own default (5m). Longer avoids paying a full reload after a pause.
     "keep_alive": "",
     "preload_default": False,
+    # Whether to ask GitHub, once per launch, if a newer release exists. Off by
+    # default and the only outbound call in the app that is not to your local
+    # Ollama — the offline guarantee is that nothing leaves the machine unless
+    # you switch this on.
+    "update_check": False,
     # Models seen emitting a `thinking` field. /api/show under-reports the
     # capability (gemma-4 does not advertise it but honours `think` fully), so
     # we learn from what actually comes back and reveal the toggle for those.
@@ -460,6 +473,57 @@ def search_chats(query: str, limit: int = 60) -> list:
             hits.append(summary)
     hits.sort(key=lambda c: -(c["updated"] or 0))
     return hits[:limit]
+
+
+# --------------------------------------------------------------------------
+# update check
+# --------------------------------------------------------------------------
+
+def version_tuple(text: str):
+    """(1, 0, 2) from "v1.0.2"; None for anything that is not three integers."""
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", (text or "").strip())
+    return tuple(int(g) for g in match.groups()) if match else None
+
+
+def check_update(force: bool = False) -> dict:
+    """
+    Ask GitHub for the newest release tag.
+
+    Nothing in the response is trusted beyond three integers. The tag is matched
+    against a strict pattern and the link is *built here* from those numbers, so
+    a release named anything at all cannot put a URL of its own choosing in
+    front of the user. Never raises: a failed check is a message, not an error
+    page, because being offline is the normal case for this app.
+    """
+    now = time.time()
+    cached = _UPDATE_CACHE["data"]
+    if not force and cached and now - _UPDATE_CACHE["at"] < _UPDATE_TTL:
+        return cached
+    result = {"current": VERSION, "latest": None, "outdated": False,
+              "url": UPDATE_PAGE, "checked": now, "error": None}
+    try:
+        request = urllib.request.Request(UPDATE_API, headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Lantern/" + VERSION,
+        })
+        with urllib.request.urlopen(request, timeout=6) as response:
+            body = json.loads(response.read(1 << 20).decode("utf-8", "replace"))
+        latest = version_tuple(str(body.get("tag_name") or ""))
+        mine = version_tuple(VERSION)
+        if not latest:
+            result["error"] = "GitHub returned no version we recognise."
+        else:
+            result["latest"] = ".".join(str(n) for n in latest)
+            result["url"] = "https://github.com/%s/releases/tag/v%s" % (
+                UPDATE_REPO, result["latest"])
+            result["outdated"] = bool(mine and latest > mine)
+    except Exception as exc:
+        result["error"] = "Could not reach GitHub (%s)." % exc.__class__.__name__
+    # Only a good answer is worth keeping for six hours; a transient failure
+    # should not pin "offline" onto the rest of the session.
+    if not result["error"]:
+        _UPDATE_CACHE.update({"at": now, "data": result})
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -1194,6 +1258,18 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["ping"] and method == "GET":
             return self.json_out({"app": "lantern", "version": VERSION,
                                   "data_dir": str(DATA), "ollama": OLLAMA})
+
+        # ---- update check ------------------------------------------------
+        # Gated on the setting here, not only in the client. This is the one
+        # request that leaves the machine, so the switch that enables it is the
+        # only thing that can cause it — including for anything driving the API
+        # directly.
+        if parts == ["update"] and method == "GET":
+            if not get_settings().get("update_check"):
+                return self.json_out({"enabled": False, "current": VERSION})
+            result = dict(check_update(force=bool(query.get("force"))))
+            result["enabled"] = True
+            return self.json_out(result)
 
         # ---- bootstrap ---------------------------------------------------
         if parts == ["bootstrap"] and method == "GET":

@@ -443,6 +443,21 @@ button { cursor: pointer; background: none; border: 0; }
 }
 .foot-btn:hover { background: var(--bg-hover); color: var(--fg); }
 
+/* version line — quiet until there is something to say */
+.foot-version {
+  display: flex; align-items: center; gap: 6px; padding: 4px 10px 1px;
+  color: var(--fg-3); font-size: .72rem; letter-spacing: .02em; text-align: left;
+  font-variant-numeric: tabular-nums; transition: color .15s;
+}
+.foot-version:hover { color: var(--fg-2); }
+.foot-version .vdot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  flex: none;
+}
+.foot-version.stale { color: var(--accent); }
+.foot-version.stale:hover { color: var(--accent); }
+
 /* ═════════════════════════ main ═════════════════════════ */
 .main { position: relative; z-index: 1; flex: 1; min-width: 0;
         display: flex; flex-direction: column; }

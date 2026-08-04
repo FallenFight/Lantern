@@ -16,6 +16,7 @@ export const S = {
   chats: [],           // summaries for the sidebar
   chat: null,          // the chat currently on screen
   version: '',         // reported by the server, shown in Settings → About
+  update: null,        // {latest, outdated, url, error} once checked, else null
   tools: [],           // registry from the server: [{name, description, summary}]
   toolRoundLimit: 4,   // server-advertised cap on tool rounds per reply
   ollamaOk: true,
@@ -219,6 +220,26 @@ export async function loadBootstrap() {
   emit('prompts');
   emit('models');
   emit('chats');
+}
+
+/**
+ * Ask the server whether a newer release exists.
+ *
+ * Deliberately *not* part of bootstrap: this is the one call that leaves the
+ * machine, and folding it into startup would make a launch with no internet
+ * wait on a timeout before the app appeared. It runs after the UI is up, and a
+ * failure is a line in Settings rather than anything the user has to dismiss.
+ */
+export async function refreshUpdate(force = false) {
+  if (!force && !S.settings?.update_check) { S.update = null; emit('update'); return null; }
+  try {
+    const data = await api.checkUpdate(force);
+    S.update = data.enabled === false ? null : data;
+  } catch (err) {
+    S.update = { error: err.message, current: S.version };
+  }
+  emit('update');
+  return S.update;
 }
 
 export async function refreshModels() {

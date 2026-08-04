@@ -9,9 +9,10 @@ account, no telemetry, no menus you'll never open.
   native host. The whole bundle is about 1 MB, half of which is the icon.
 - **Everything is a file.** Chats, personas, and settings are readable JSON.
   Back it up with `cp`, diff it with `git`, delete it with `rm`.
-- **Offline.** The only network call is to your local Ollama. No CDNs — the
-  markdown renderer, syntax highlighter, and maths renderer are written from
-  scratch.
+- **Offline.** Out of the box the only network call is to your local Ollama. No
+  CDNs — the markdown renderer, syntax highlighter, and maths renderer are
+  written from scratch. There is exactly one thing that can reach further, it is
+  **off until you turn it on**, and it is named below.
 
 See [`NOTES.md`](NOTES.md) for design decisions, rejected approaches, and traps.
 
@@ -347,6 +348,28 @@ your Ollama models.
 
 Chats are stored unencrypted by design. FileVault already encrypts the disk, and
 plain files are what allowed hand-recovery when things went wrong.
+
+### The one call that leaves your machine
+
+**Settings → About → Check for updates**, off by default. Switched on, Lantern
+asks GitHub once per launch whether a newer release exists, and shows the answer
+next to the version in the sidebar. Nothing else changes and nothing is sent —
+it is an anonymous read of the public releases list, with no account, no token
+and no identifier beyond a `Lantern/<version>` user agent.
+
+Two details worth knowing, because "it only talks to GitHub" is a claim you
+should be able to check:
+
+- The switch is enforced **on the server**, not just in the interface. With it
+  off, `GET /api/update` returns `{"enabled": false}` and makes no outbound
+  request at all — so nothing driving the API can cause one either.
+- Nothing in GitHub's reply is trusted beyond three integers. The release tag is
+  matched against `v1.2.3` exactly, and the link you click is **rebuilt** from
+  those numbers rather than taken from the response.
+
+Leave it off and Lantern behaves exactly as it did before the feature existed:
+the version still shows in the sidebar and in Settings, it just never asks
+anyone whether it is current.
 
 ---
 

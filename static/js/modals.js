@@ -3,7 +3,7 @@
 import {
   S, emit, patchSettings, refreshModels, refreshPrompts, effectiveParams,
   effectiveSystem, queueSaveChat, currentModel, currentPersona, modelInfo,
-  thinkingSupported, thinkingAdvertised,
+  thinkingSupported, thinkingAdvertised, refreshUpdate,
 } from './store.js';
 import { api, pullStream } from './api.js';
 import {
@@ -50,6 +50,78 @@ function toggle(checked, onchange) {
   const input = el('input', { type: 'checkbox', onchange: (e) => onchange(e.target.checked) });
   input.checked = !!checked;
   return el('label', { class: 'sw' }, input, el('i'));
+}
+
+/**
+ * The update check, and the one place in the app that can reach the internet.
+ *
+ * It says so in the row rather than burying it, because "offline unless you say
+ * otherwise" is a promise the README makes and this is the only thing that can
+ * break it. Off by default; nothing is contacted until the switch is on.
+ *
+ * The status line is rebuilt in place rather than by reopening Settings, so the
+ * result of a check appears under the switch that started it.
+ */
+function updateRow() {
+  const status = el('div', { class: 'sr-sub', style: 'margin-top:5px' });
+
+  const paint = () => {
+    status.textContent = '';
+    if (!S.settings?.update_check) {
+      status.append(el('span', { text: 'Off — nothing leaves this machine.' }));
+      return;
+    }
+    const u = S.update;
+    if (!u) { status.append(el('span', { text: 'Checking…' })); return; }
+    if (u.error) {
+      // Server-worded and already generic; still rendered as text, never markup.
+      status.append(el('span', { text: u.error }));
+      return;
+    }
+    if (u.outdated) {
+      status.append(el('span', { text: `Lantern ${u.latest} is available. ` }));
+      // The href is built by the server from three integers it parsed itself,
+      // never taken from the release payload.
+      status.append(el('a', { href: u.url, target: '_blank', rel: 'noreferrer noopener',
+        text: 'Release notes' }));
+      status.append(el('span', { text: ' · update with ' }));
+      status.append(el('code', { text: 'git pull && ./build-app.sh' }));
+    } else {
+      status.append(el('span', { text: `Up to date — ${u.latest || S.version} is the newest release.` }));
+    }
+  };
+
+  const recheck = el('button', {
+    class: 'btn btn-ghost', text: 'Check now',
+    onclick: async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      S.update = null;
+      paint();
+      await refreshUpdate(true);
+      paint();
+      button.disabled = false;
+    },
+  });
+  const sync = () => { recheck.hidden = !S.settings?.update_check; };
+
+  const row = srow('Check for updates',
+    'Asks GitHub once per launch whether a newer release exists. This is the only '
+    + 'request Lantern makes that is not to your local Ollama.',
+    el('div', { style: 'display:flex;align-items:center;gap:8px' },
+      recheck,
+      toggle(S.settings?.update_check, async (on) => {
+        await patchSettings({ update_check: on });
+        sync();
+        S.update = null;
+        paint();
+        await refreshUpdate();
+        paint();
+      })));
+  row.querySelector('.sr-body').append(status);
+  sync();
+  paint();
+  return row;
 }
 
 /**
@@ -329,6 +401,7 @@ export function openSettings() {
   body.append(sectionTitle('About'));
   body.append(srow('Version', 'A lean local chat interface for Ollama.',
     el('span', { class: 'mono-sm', text: S.version ? `v${S.version}` : '—' })));
+  body.append(updateRow());
   body.append(srow('Ollama host', S.host, el('span', {
     class: 'mono-sm', text: S.ollamaOk ? 'connected' : 'unreachable' })));
   body.append(srow('Data folder', S.dataDir,

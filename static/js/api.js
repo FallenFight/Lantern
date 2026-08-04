@@ -55,6 +55,9 @@ export const api = {
   callTool: (name, args, signal) =>
     request('/api/tools/call', { method: 'POST', body: { name, arguments: args }, signal }),
 
+  // Refuses unless `update_check` is on — the server owns that gate.
+  checkUpdate: (force) => request(`/api/update${force ? '?force=1' : ''}`),
+
   backup: () => request('/api/backup'),
   restore: (payload) => request('/api/restore', { method: 'POST', body: payload }),
 
