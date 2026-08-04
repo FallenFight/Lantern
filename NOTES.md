@@ -395,6 +395,20 @@ Also fixed: `scrollbar-gutter: stable both-edges` on `.scroll`. Styling
 thread 5.5px against the composer. Not reproducible on this machine
 (`AppleShowScrollBars = WhenScrolling`), so it is reasoned, not verified.
 
+## `writingsuggestions="off"` on the composer
+
+macOS Writing Tools puts an Apple Intelligence glyph inside editable fields, and
+it appeared in the composer — the system drawing into our textarea, not anything
+Lantern renders. The composer is the only `<textarea>` and the only field with
+`spellcheck="true"`; search, find and the palette are single-line inputs with
+spellcheck off, and were never affected.
+
+The attribute suppresses it (WebKit, Safari 18+). **Don't delete it wondering
+what it does.** The trade is deliberate: no Siri glyph and no inline prediction
+ghosting over the prompt you are composing, at the cost of losing Writing Tools
+inside Lantern. Anyone who wants it back has it system-wide in System Settings →
+Apple Intelligence & Siri.
+
 ## LaTeX subset
 
 Deliberately not a TeX engine. Covers what chat models actually emit:
