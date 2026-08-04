@@ -25,6 +25,15 @@ Consequences worth knowing:
   no `X | Y` at runtime (annotations are fine — `from __future__ import
   annotations` is on).
 - The app icon is rendered procedurally by `tools/make_icon.py` — no Pillow.
+  It is a cool ring around a warm core: the lantern reduced to light held in a
+  housing. The earlier drawing had a handle, caps, tapered posts and a foot, and
+  below ~48px those collapsed into a grey smudge — verified by rendering at 32px
+  and magnifying, not by guessing. **Two shapes survive any size; seven do not.**
+  The mark exists in three places that must change together — `make_icon.py`, the
+  favicon data URI in `index.html`, and the empty-state `.empty-mark` SVG.
+  Smooth gradients compress worse than flat black, so the `.icns` went from
+  380 KB to 503 KB and is now half the bundle. That is the price of the glow;
+  the alternative is banding.
 
 ## Naming
 

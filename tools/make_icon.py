@@ -2,9 +2,14 @@
 """
 Generate Lantern's app icon as a PNG. Stdlib only — no Pillow.
 
-A near-black squircle holding a cool metal lantern whose flame actually casts
-light: the glow is blended additively over the background and over the metal,
-so the tile reads as lit from within rather than as a flat glyph.
+A near-black squircle holding a cool metal ring around a warm core: the lantern
+reduced to the thing it actually is, light held inside a housing. The core lights
+the ring's inner edge additively and spills onto the background, so the tile
+reads as lit from within rather than as a flat glyph.
+
+Drawn this way on purpose. The earlier lantern had a handle, two caps, tapered
+posts and a foot; below about 48px those collapsed into a grey smudge and the
+tile read as "dark square, warm dot". Two shapes survive any size.
 
 Antialiased by 3x3 supersampling.
 
@@ -17,6 +22,11 @@ import zlib
 
 SQUIRCLE_N = 5.0      # 4-5 approximates the Big Sur icon shape
 CONTENT = 0.82        # art occupies this fraction; the rest is transparent margin
+
+RING_R = 0.262        # ring centreline, in fractions of the tile
+RING_TH = 0.048       # thick enough to hold up at 32px; thinner greys out
+CORE_R = 0.150        # small on purpose — the dark gap between core and ring is
+                      # what makes this read as light *held* rather than a disc
 
 BG_TOP = (0x1B, 0x1C, 0x22)     # cool charcoal, lifts the top edge off pure black
 BG_BOT = (0x06, 0x06, 0x08)     # near black
@@ -93,53 +103,35 @@ def shade(px, py, size):
     v = py / float(size)
     mid = 0.5
 
-    # ── background: vertical gradient, then the flame's spill light ──────────
+    d = ((u - mid) ** 2 + (v - mid) ** 2) ** 0.5
+
+    # ── background: vertical gradient, then the core's spill light ───────────
     col = mix(BG_TOP, BG_BOT, v)
+    # Falls off fast: a gentler curve floods the gap and the housing stops
+    # reading as a housing.
+    spill = max(0.0, 1.0 - d / 0.42) ** 3.4
+    col = add_light(col, GLOW, spill * 0.62)
 
-    fcx, fcy = mid, 0.575
-    gd = (((u - fcx) / 0.30) ** 2 + ((v - fcy) / 0.31) ** 2) ** 0.5
-    spill = max(0.0, 1.0 - gd) ** 2.1
-    col = add_light(col, GLOW, spill * 0.60)
+    # ── the ring ────────────────────────────────────────────────────────────
+    # Cool white at the top, steel toward the bottom, and lit on its inner edge
+    # by the core — that inner rim is what stops it reading as a flat outline.
+    if ring(u, v, mid, mid, RING_R, RING_TH):
+        metal = mix(METAL_HI, METAL_LO, max(0.0, min(1.0, (v - 0.26) / 0.50)))
+        inner_edge = RING_R - RING_TH * 0.5
+        lit = max(0.0, 1.0 - (d - inner_edge) / RING_TH)
+        return 1.0, add_light(metal, GLOW, lit * 0.55 + spill * 0.30)
 
-    # ── metal: handle, caps, tapered posts ──────────────────────────────────
-    # cool at the top, steel lower down, plus the flame's light on top of that
-    metal = mix(METAL_HI, METAL_LO, max(0.0, min(1.0, (v - 0.30) / 0.55)))
-    metal = add_light(metal, GLOW, spill * 0.42)
-
-    t = size  # thickness scale is in normalised units below
-    th = 0.030
-
-    if ring(u, v, mid, 0.292, 0.072, th, upper_only=True):
-        return 1.0, metal
-    # top cap: narrow plate, and a wider brim under it
-    if seg(u, v, 0.402, 0.318, 0.598, 0.318, 0.036):
-        return 1.0, metal
-    if seg(u, v, 0.352, 0.356, 0.648, 0.356, 0.030):
-        return 1.0, metal
-    # tapered posts
-    if seg(u, v, 0.392, 0.362, 0.372, 0.700, 0.028):
-        return 1.0, metal
-    if seg(u, v, 0.608, 0.362, 0.628, 0.700, 0.028):
-        return 1.0, metal
-    # base: plate and a foot
-    if seg(u, v, 0.348, 0.704, 0.652, 0.704, 0.032):
-        return 1.0, metal
-    if seg(u, v, 0.412, 0.742, 0.588, 0.742, 0.028):
-        return 1.0, metal
-
-    # ── flame: amber envelope with a white-hot core sitting low inside it ────
-    # lifted clear of the base plate so the rounded bottom reads; a little
-    # wider and shorter than a cone so it does not look like a carrot
-    BASE_Y, R, H, LEAN = 0.630, 0.058, 0.152, 0.018
-    outer = flame_field(u, v, mid, BASE_Y, R, H, LEAN)
-    if outer > 0.0:
-        c = mix(FLAME_EDGE, FLAME_MID, min(1.0, outer * 2.1))
-        # A hard-edged inner flame, not a soft gradient. Smooth blends turn to
-        # mush at 32px; two crisp bands still read as a flame in the Dock.
-        inner = flame_field(u, v, mid, BASE_Y - 0.030, R * 0.56, H * 0.60, LEAN * 0.5)
-        if inner > 0.20:
-            c = FLAME_CORE
-        return 1.0, c
+    # ── the core ────────────────────────────────────────────────────────────
+    # Graded rather than banded, but with enough gamma that the middle stays a
+    # solid bright disc: that is what survives being drawn 32 pixels wide.
+    core = max(0.0, 1.0 - d / CORE_R)
+    if core > 0.0:
+        c = mix(FLAME_EDGE, FLAME_MID, min(1.0, core * 2.0))
+        if core > 0.52:
+            c = mix(c, FLAME_CORE, min(1.0, (core - 0.52) / 0.28))
+        # Fade the outermost sliver into the lit background so the core has no
+        # hard circular cut where it meets the gap.
+        return 1.0, mix(col, c, min(1.0, core * 3.4))
 
     return 1.0, col
 

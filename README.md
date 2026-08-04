@@ -6,7 +6,7 @@ account, no telemetry, no menus you'll never open.
 - **Zero dependencies.** Python 3 standard library on the back, plain ES modules
   on the front. No `npm install`, no build step, no bundler, no Electron.
 - **No browser.** The Mac app is a real `NSWindow` + `WKWebView` with a 144 KB
-  native host. The whole bundle is ~800 KB.
+  native host. The whole bundle is about 1 MB, half of which is the icon.
 - **Everything is a file.** Chats, personas, and settings are readable JSON.
   Back it up with `cp`, diff it with `git`, delete it with `rm`.
 - **Offline.** The only network call is to your local Ollama. No CDNs — the
