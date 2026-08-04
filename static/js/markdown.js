@@ -529,6 +529,22 @@ function inline(src) {
     return `\u0000C${codes.length - 1}\u0000`;
   });
 
+  // 1b. drop stray closing tags with no opener anywhere in this block.
+  //
+  // Small quantised models emit them: gemma-4-E4B at Q4_0 ended a reply with a
+  // bare </blockquote> on one sample and not the next, from the same prompt —
+  // reproduced against Ollama directly, with none of this code in the path. It
+  // renders as visible literal text and reads like a bug in Lantern.
+  //
+  // Deliberately narrow. It runs *after* inline code is placeholdered and never
+  // sees fenced blocks, so `</div>` in code survives — which is where anyone
+  // legitimately discussing HTML puts it. A closer with a matching opener is
+  // left alone, so real markup a model writes is untouched. Stored content is
+  // never modified: this is display only, and turning off "Render markdown"
+  // shows exactly what the model wrote.
+  text = text.replace(/<\/([a-zA-Z][\w-]*)\s*>/g, (whole, tag) =>
+    (new RegExp(`<${tag}(\\s[^>]*)?>`, 'i').test(text) ? whole : ''));
+
   // 2. maths, protected like code so emphasis and escaping cannot touch it
   const maths = [];
   const holdMath = (tex, display) => {

@@ -240,6 +240,13 @@ is not mistaken for maths.
 Raw HTML in a reply is escaped, never executed; `javascript:` and `data:` URLs
 are neutralised.
 
+Small quantised models sometimes emit a stray closing tag — a bare
+`</blockquote>` at the end of an otherwise fine answer. Those are dropped **from
+the display only**, and only when nothing opened them: markup inside code, and
+any closing tag that has a matching opener, is left exactly as written. The
+stored message is never altered, so turning off *Render markdown* shows precisely
+what the model produced.
+
 ## Organisation
 
 Auto-generated titles, pin to top, **archive**, date grouping, rename, duplicate.

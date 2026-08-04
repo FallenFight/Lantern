@@ -464,6 +464,30 @@ quotes are byte-for-byte unchanged. **Re-run those six cases if the blockquote
 branch is ever touched** — the risk is not breaking the fix, it is silently
 breaking continuation.
 
+**Orphan closing tags are stripped at display time.** `gemma-4-E4B` at Q4_0 ended
+a reply with a bare `</blockquote>`, which renders as visible literal text and
+reads like a Lantern bug. It is not: reproduced against Ollama **directly**, with
+none of this code in the path, appearing on one sample and not the next from an
+identical prompt. Small heavily-quantised models emit junk tokens.
+
+Two things worth keeping straight. The model, asked about it, confidently
+explained it as "an artifact from the underlying templating process" — a
+confabulation, since it cannot introspect its own sampling. **A model's account
+of its own behaviour is not evidence**; the reproduction was. And the stripping
+is display-only, deliberately narrow:
+
+- It runs inside `inline()` *after* inline code is placeholdered, and fenced
+  blocks never reach `inline()` at all — so `</div>` in code survives, which is
+  where anyone legitimately discussing HTML puts it.
+- A closer with a matching opener anywhere in the block is left alone.
+- Stored content is never modified. Turning off *Render markdown* shows exactly
+  what the model wrote.
+
+Tested both directions: the stray closer goes; inline code, fenced code, balanced
+markup, `a < b and b > c`, and a mixed case keeping `<b>bold</b>` while dropping a
+lone `</em>` all behave. **Re-run those if this is touched** — the risk is not
+failing to strip, it is eating something real.
+
 ### Known divergences, found by review and deliberately left
 
 - Python decorators are not highlighted: the `\b` in `\b([A-Za-z_$@#][\w$]*)\b`
@@ -606,16 +630,26 @@ Still to do — folded into the 0.9.5 plan below:
 
 ## Where things stand
 
-**Shipped: `v0.9.5`.** Tool calling is complete — `current_datetime`,
-`search_chats`, `calculate` — discoverable from the empty state, capped at four
-rounds per reply. `num_ctx` defaults to 32768. The repo is on GitHub but
-**private until 1.0**.
+**Shipped: `v1.0.0`, and the repo is public.**
+<https://github.com/FallenFight/Lantern>
 
-0.9.5 delivered model comparison, the prompt library, the sliding lens on the
-Settings segmented controls, and `content-visibility` on off-screen messages.
+Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
+model comparison ships with the side-by-side view, and there is a prompt library.
+`num_ctx` defaults to 32768. The stranger path is verified: an anonymous clone
+with credentials stripped from the environment builds and runs.
 
-Next is **1.0**: README screenshots, folders, testing the stranger path with
-credentials unset, and flipping the repo public.
+**1.0 means "ready for strangers", not feature complete.** The compatibility
+promise it carries is above, under *The 1.0 compatibility promise* — it is about
+the chat JSON on disk, not an API.
+
+**Unreleased on `main`:** the orphan-closing-tag strip. A `1.0.1` when convenient.
+
+**Still not done, and the biggest gap:** the README has **no screenshots**. For a
+UI project that matters more than any prose in it. Three worth taking: the thread
+mid-reply, an expanded tool call, and the compare view.
+
+Everything else is optional — see *Still open* below, ranked. Folders was cut
+from 1.0 deliberately: it is a feature, not a readiness gap.
 
 ### Comparison — built
 
