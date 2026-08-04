@@ -358,6 +358,25 @@ repainted with the *previous* value — every theme/accent/size pick appeared to
 need a second click. `applyVisual()` in `modals.js` mutates the local copy
 first, repaints, then persists. Use it for anything that changes appearance.
 
+## The 1.0 compatibility promise
+
+1.0 is not "feature complete" — it is **"ready for strangers"**. The thing a
+version number now commits to is not an API, because there is no public API. It
+is **the chat JSON on disk**:
+
+- **Add fields, never repurpose or remove them.** `tools`, `variants` and
+  `variant` were all added after chats already existed, and old files keep
+  loading because every consumer defaults when a field is absent. That is the
+  pattern to keep.
+- **Never require a migration for something a user could lose.** Chats have gone
+  missing twice. A format change that needs a rewrite pass is a format change
+  that can destroy history halfway through.
+- A file written by a newer Lantern should still open in an older one, degraded
+  rather than broken. Unknown fields are ignored, not fatal.
+
+Everything else — the HTTP endpoints, the module layout, the CSS — is internal
+and may change freely.
+
 ## Data safety — read this
 
 Chats are plain JSON in `~/Library/Application Support/Lantern/chats/`. Writes
