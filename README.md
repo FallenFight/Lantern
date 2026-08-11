@@ -5,8 +5,9 @@ account, no telemetry, no menus you'll never open.
 
 - **Zero dependencies.** Python 3 standard library on the back, plain ES modules
   on the front. No `npm install`, no build step, no bundler, no Electron.
-- **No browser.** The Mac app is a real `NSWindow` + `WKWebView` with a 144 KB
-  native host. The whole bundle is about 1 MB, half of which is the icon.
+- **No browser.** The Mac app is a real `NSWindow` + `WKWebView` with a tiny
+  native host. The whole bundle is a couple of megabytes, half of which is the
+  icon.
 - **Everything is a file.** Chats, personas, and settings are readable JSON.
   Back it up with `cp`, diff it with `git`, delete it with `rm`.
 - **Offline.** Out of the box the only network call is to your local Ollama. No
@@ -194,8 +195,8 @@ level as plain on.
 
 ## Tools
 
-The **Tools** pill lets a model call into Lantern for facts it cannot know. Three
-ship so far:
+The **Tools** pill lets a model call into Lantern for facts it cannot know.
+These ship:
 
 - **`current_datetime`** — reads this machine's clock, in any IANA timezone. Ask
   for the time in Tokyo and you get the real answer, not a guess frozen at
@@ -233,9 +234,9 @@ returned, so nothing the model was told is hidden from you.
 Tools run **on this machine, in the server process, read-only** — no shell, no
 file writes, no network. The client asks for tools by name and `server.py`
 supplies the schema from its own registry, so the front end can never describe a
-callable the server cannot run. A reply is capped at four rounds of calls; past
+callable the server cannot run. A reply is capped at a few rounds of calls; past
 that the model is asked once more with no tools attached so the turn still ends
-in an answer.
+in an answer. The note in the thread gives the actual limit when you reach it.
 
 Capability detection has the same flaw as thinking: `/api/tags` claims none of
 the installed models support tools while `/api/show` correctly reports all three.
@@ -248,14 +249,15 @@ is the *system* prompt and shapes the whole conversation; a saved prompt is the
 thing you type, for one turn. Use both together.
 
 ⌘K, type a few letters of the name, and it drops into the composer at the cursor.
-Manage them from ⌘K → *Prompt library*. Four are seeded so the feature shows what
-it is for; delete them if they are not yours.
+Manage them from ⌘K → *Prompt library*. A few are seeded so the feature shows
+what it is for; delete them if they are not yours.
 
 ## Personas
 
 Named system prompts, switchable from the toolbar, ⌘P, or the palette. Each can
-pin its own model, thinking setting, and sampling overrides. Five ship (Default,
-Terse, Engineer, Socratic Tutor, Editor), all editable, with JSON import/export.
+pin its own model, thinking setting, and sampling overrides. Default, Terse,
+Engineer, Socratic Tutor and Editor ship, all editable, with JSON
+import/export.
 
 Precedence is **global defaults → persona → this chat**. Editing the system
 prompt in Parameters overrides the persona for that chat only; *Reset overrides*
@@ -268,7 +270,8 @@ code, and fenced code blocks with per-language highlighting, a line count, copy,
 and soft-wrap.
 
 **Maths**: a LaTeX subset covering what models actually emit — `$…$`, `$$…$$`,
-`\(…\)`, `\[…\]`, fractions, `^`/`_`, `\sqrt`, `\text`, and ~90 symbols. Unknown
+`\(…\)`, `\[…\]`, fractions, `^`/`_`, `\sqrt`, `\text`, and a broad set of
+symbols. Unknown
 commands render as literal text rather than vanishing. Currency like `$5 and $10`
 is not mistaken for maths.
 
@@ -322,9 +325,9 @@ thinking duration under each reply. Resident VRAM per loaded model.
 
 ## Appearance
 
-Six themes — four dark (Lantern, Midnight, Cyber, Carbon), two light (Paper,
-Mist) — or follow the system. Twelve accents, adjustable text size, message
-width, and density. Every accent works on every theme. Translucency is limited to
+Dark themes (Lantern, Midnight, Cyber, Carbon), light themes (Paper, Mist), or
+follow the system. A range of accents, adjustable text size, message width, and
+density. Every accent works on every theme. Translucency is limited to
 the chrome so the message list stays at full frame rate;
 `prefers-reduced-transparency` and `prefers-reduced-motion` are both honoured.
 
@@ -447,7 +450,8 @@ static/
 data/                created on first run (or ~/Library/Application Support/Lantern)
 ```
 
-Under 11,000 lines of source. Chat writes are atomic (temp file + `os.replace`).
+Small enough to read end to end. Chat writes are atomic (temp file +
+`os.replace`).
 
 ## Notes
 

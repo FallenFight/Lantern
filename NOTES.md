@@ -638,29 +638,41 @@ of them, nearly all harmless, because a grep cannot see the target function's
 signature — a check that cries wolf gets ignored, which is worse than no check.
 The script correlates the listener with the function's parameter list instead.
 
-**A check that matches one phrasing is a check you can edit your way out of by
-accident.** The line-count claim had been guarded since 0.9.5, and it still went
-stale a third time: the wording was softened from "under 10,000 lines" to "about
-10,000 lines of source", which matched neither pattern the check looked for, so
-it passed on a sentence it could not see. Two consequences, both now in the
-script:
+**The best check for a fact is not writing it down twice.** This took two goes to
+learn properly.
 
-- The claim is **required** to exist in a checkable shape. Removing or rewording
-  it is itself a failure, with a message saying to delete the check if the claim
-  is genuinely gone. Silence is the one outcome a check must never have.
-- A bound must also be **tight**. "Under 900,000 lines" is true and worthless, so
-  a bound more than 1.3× the real count fails too.
+First attempt: check each count against its source. That caught the real "nine
+accents" bug, but it had two holes. The line-count claim had been guarded since
+0.9.5 and *still* went stale a third time, because the wording was softened from
+"under 10,000 lines" to "about 10,000 lines of source" — which matched neither
+pattern the check looked for, so it passed on a sentence it could not see. **A
+check that matches one phrasing is a check you can edit your way out of by
+accident.** And the count itself was wrong: `COUNTED_SOURCES` omitted
+`build-app.sh` and `lantern`, hiding ~280 lines, so the README could claim "under
+10,000" while `wc` said 10,044.
 
-And the count itself was wrong: `COUNTED_SOURCES` omitted `build-app.sh` and
-`lantern`, hiding ~280 lines of real shipping logic, so the README could claim
-"under 10,000" while `wc` said 10,044. **If it ships, it counts.**
+Second attempt, and the one that ends it: **the README names things and never
+counts them.** Every one of the six failures was a number restating something the
+code already enumerates. Where the README lists the things, the list *is* the
+count, so the number was pure redundancy carrying all of the risk. They are gone,
+and `lint.py` now fails if one comes back — the ban is on the *number*, so unlike
+a value check it cannot be beaten by rephrasing.
 
-The palette checks are the same shape as the tool-count check, because it was the
-same failure: the README said "nine accents" while `theme.js` had declared twelve
-for months. Accent count, theme count, the dark/light split, and every theme
-*name* are now held against `theme.js`. All seven failure modes were verified by
-breaking them one at a time against an extracted tree — that is what the
-`python3 tools/lint.py <dir>` argument is for.
+What stays: specs a reader acts on — the port, `num_ctx`, macOS 11, keyboard
+keys. Those are not "how many X" claims, and the ones mirroring code are still
+checked. Measurements stay too (the ~6s reload, the 14.6 GB two-model figure);
+they are observations about a machine, not restatements of the source.
+
+Names are the opposite case and are *encouraged*: every registered tool and every
+theme label must appear in the README, checked for presence, so a rename is
+caught. Naming is what a reader wanted from the number anyway.
+
+Verified by reintroducing each retired claim against an extracted tree — accent,
+theme, line, tool and persona counts all fail, the current README is clean, and
+renaming a theme in `theme.js` is still caught. That is what the
+`python3 tools/lint.py <dir>` argument is for. Deleting the count checks also
+left `source_line_count()` and two constants dead, which were removed with them:
+a lint script carrying code that can no longer fire is the same disease.
 
 ## Testing notes
 

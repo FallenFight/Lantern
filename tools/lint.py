@@ -92,14 +92,6 @@ def check_js(root: Path) -> list:
 COUNT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
                "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
                "twelve": 12}
-NUMBER_WORDS = {v: k for k, v in COUNT_WORDS.items()}
-
-# `build-app.sh` and `lantern` were missing, so the count excluded ~280 lines of
-# real shipping logic and the README could claim "under 10,000" while a reader
-# counting the same way as `wc` got 10,044. If it ships, it counts.
-COUNTED_SOURCES = ("server.py", "static/js", "static/css", "static/index.html",
-                   "native", "tools", "build-app.sh", "lantern")
-
 
 def server_literal(root: Path, name: str):
     """Pull a literal assignment out of server.py without importing it."""
@@ -149,19 +141,6 @@ def theme_palette(root: Path):
     }
 
 
-def source_line_count(root: Path) -> int:
-    total = 0
-    for rel in COUNTED_SOURCES:
-        target = root / rel
-        if target.is_file():
-            total += len(target.read_text(encoding="utf-8", errors="replace").split("\n"))
-        elif target.is_dir():
-            for path in sorted(target.rglob("*")):
-                if path.is_file() and path.suffix in (".py", ".js", ".css", ".html", ".swift"):
-                    total += len(path.read_text(encoding="utf-8", errors="replace").split("\n"))
-    return total
-
-
 def check_docs(root: Path) -> list:
     problems = []
     readme_path = root / "README.md"
@@ -169,33 +148,16 @@ def check_docs(root: Path) -> list:
         return ["README.md is missing"]
     readme = readme_path.read_text(encoding="utf-8")
 
-    # 1. Every registered tool must be named in the README, and the count word
-    #    beside "ship" must match. README claimed one tool for a whole release
-    #    after there were two.
+    # 1. Every registered tool must be named in the README. There used to be a
+    #    second half checking the count word beside "ship" — README claimed one
+    #    tool for a whole release after there were two — but counts are banned
+    #    outright by rule 3 now, so it could only ever have matched a sentence
+    #    that is itself a failure. Presence is the part a reader needs anyway.
     tools = registered_tools(root)
     for name in tools:
         if name not in readme:
             problems.append(f"README.md: tool `{name}` is registered in server.py "
                             f"but never mentioned")
-    # Scope the count to the Tools section — "Five ship (Default, Terse, …)" in
-    # the Personas section is a different, correct claim. Flatten whitespace
-    # first: the claim wraps as "… cannot know. Three\nship so far", so anything
-    # line-based misses it.
-    tools_section = re.search(r"## Tools\n(.*?)(?=\n## )", readme, re.S)
-    if tools_section and tools:
-        flat = re.sub(r"\s+", " ", tools_section.group(1))
-        for sentence in re.findall(r"[^.]*\bships?\b[^.]*", flat, re.I):
-            for token in re.findall(r"\b([A-Za-z]+|\d+)\b", sentence):
-                count = (int(token) if token.isdigit()
-                         else COUNT_WORDS.get(token.lower()))
-                if count is None:
-                    continue
-                if count != len(tools):
-                    problems.append(
-                        f"README.md: the Tools section says \"{token}\" but "
-                        f"{len(tools)} tools are registered "
-                        f"({', '.join(tools)})")
-                break
 
     # 2. A default quoted in prose must equal the real default. num_ctx had five
     #    stale references when it changed from 8192.
@@ -214,34 +176,36 @@ def check_docs(root: Path) -> list:
                     problems.append(f"{rel}: quotes a default of {value}, but "
                                     f"num_ctx is {num_ctx}")
 
-    # 3. The line count has now gone stale three times, and the third was this
-    #    check's own fault: the claim was reworded to "about 10,000 lines of
-    #    source", which matches neither pattern below, so the check quietly
-    #    passed on a sentence it could not see. A check that only fires on the
-    #    exact phrasing it was written for is a check you will edit your way out
-    #    of by accident. So the claim is now *required* to exist in a shape this
-    #    can hold, must be true, and must be tight enough to mean something —
-    #    "under 1,000,000 lines" is not a claim.
-    actual = source_line_count(root)
-    if re.search(r"~\s?[\d,]{4,7}\s+lines", readme):
-        problems.append("README.md: states a precise line count, which goes stale "
-                        "every release. Use a bound like \"under 11,000 lines\"")
-    bound = re.search(r"[Uu]nder ([\d,]{3,7}) lines", readme)
-    if not bound:
-        problems.append(
-            f"README.md: no line-count claim this can check. Write it as "
-            f"\"under N lines\" — the source is {actual:,}. Any other wording "
-            f"passes silently, which is how it went stale before. If the claim "
-            f"is gone for good, delete this check rather than leaving it blind")
-    else:
-        limit = int(bound.group(1).replace(",", ""))
-        if actual >= limit:
-            problems.append(f"README.md: claims under {limit:,} lines, but the "
-                            f"source is now {actual:,}")
-        elif limit > actual * 1.3:
-            problems.append(f"README.md: claims under {limit:,} lines while the "
-                            f"source is {actual:,} — a bound that loose says "
-                            f"nothing. Tighten it")
+    # 3. THE README NAMES THINGS; IT NEVER COUNTS THEM.
+    #
+    #    Six doc failures, and every one was a number restating something the
+    #    code already enumerates: a tool count, an accent count, the line count
+    #    three times. Checking each count against its source worked, but only
+    #    for the ones someone thought to check, and the line count still escaped
+    #    by being reworded into a shape the check could not see.
+    #
+    #    So the rule inverted. The counts are gone from the README — the list is
+    #    the count — and this fails if one comes back. A number that is never
+    #    written cannot go stale, and unlike a value check this cannot be
+    #    defeated by rephrasing, because it is the *number* that is banned and
+    #    not one spelling of the sentence around it.
+    #
+    #    Specs a reader acts on are deliberately not covered: the port, num_ctx,
+    #    macOS 11, keyboard keys. Those are not "how many X" claims, and the
+    #    ones that matter are checked against the code by rule 2.
+    counted = "|".join(COUNT_WORDS) + r"|\d+"
+    banned = (
+        (rf"\b(?:{counted})\s+(accents?|themes?|tools?|personas?|prompts?)\b",
+         "counts something the README also lists — name them instead"),
+        (rf"\b(?:under|about|around|~)\s*[\d,]{{3,7}}\s+lines\b",
+         "states a line count, which has gone stale three times"),
+        (rf"\b(?:{counted})\s+(?:ship|ships)\b",
+         "counts what ships — the list beside it is the count"),
+    )
+    for pattern, why in banned:
+        for hit in re.finditer(pattern, readme, re.I):
+            problems.append(f"README.md: \"{hit.group(0).strip()}\" {why}. "
+                            f"See 'countable things' in CLAUDE.md")
 
     # 4. Every internal doc link must resolve. Two docs were deleted this
     #    session and nothing but a manual grep checked for danglers.
@@ -251,30 +215,12 @@ def check_docs(root: Path) -> list:
             if not (root / target).is_file():
                 problems.append(f"{path.name}: links to {target}, which does not exist")
 
-    # 5. Countable claims about the palette. The README said "nine accents"
-    #    while there had been twelve for months, because nobody re-counts prose.
-    #    Same shape as the tool count above, and the same failure.
+    # 5. Names, on the other hand, are exactly what the README *should* carry,
+    #    so they are checked for presence rather than banned. A renamed theme is
+    #    the same class of drift as a renamed tool, and naming is the thing the
+    #    reader actually wants.
     palette = theme_palette(root)
-    appearance = re.search(r"## Appearance\n(.*?)(?=\n## |\n---)", readme, re.S)
-    if palette and appearance:
-        flat = re.sub(r"\s+", " ", appearance.group(1))
-        for word, actual, noun in (
-            ("accents", palette["accents"], "accents"),
-            ("themes", palette["dark"] + palette["light"], "themes"),
-            ("dark", palette["dark"], "dark themes"),
-            ("light", palette["light"], "light themes"),
-        ):
-            found = re.search(rf"\b([A-Za-z]+|\d+)\s+{word}\b", flat)
-            if not found:
-                continue
-            token = found.group(1)
-            claimed = int(token) if token.isdigit() else COUNT_WORDS.get(token.lower())
-            if claimed is not None and claimed != actual:
-                problems.append(
-                    f"README.md: the Appearance section says \"{token} {word}\" but "
-                    f"theme.js declares {actual} {noun} "
-                    f"({NUMBER_WORDS.get(actual, actual)})")
-        # A renamed theme is the same class of drift as a renamed tool.
+    if palette:
         for label in palette["labels"]:
             if label not in readme:
                 problems.append(f"README.md: theme \"{label}\" is declared in "

@@ -64,18 +64,29 @@ python3 tools/lint.py                      # traps that have bitten us, plus
 /usr/bin/python3 -m py_compile server.py   # the 3.9 fallback must keep working
 ```
 
-`tools/lint.py` verifies what prose cannot be trusted to. **The pattern it exists
-for is countable things** — "N of X" in prose with the real N in the code, which
-is how README shipped wrong six times. It checks: every registered tool is named
-in the README and the count matches; accent count, theme count, the dark/light
-split and every theme name against `theme.js`; the line-count claim, which must
-exist in a checkable shape, be true, and be tight; quoted defaults equal the real
-ones; doc links resolve; and no file is missing from the Layout block.
+### Countable things — the README names them, it never counts them
 
-**Anything you add to the README of the form "N of X" needs a check here, or it
-should not be a number.** Softening the wording is not a fix — that is exactly
-how the line count went stale a third time, by being reworded into a shape the
-check could not see.
+Every one of the six times README shipped wrong was a **number restating
+something the code already enumerates**: a tool count, an accent count, the line
+count three times, a stale model name. Checking each count against its source
+worked but only for the ones someone thought to check, and the line count still
+escaped by being reworded into a shape the check could not see.
+
+So the counts are **gone from the README**, and `tools/lint.py` fails if one comes
+back. Where the README lists the things, the list *is* the count. A number that
+is never written cannot go stale, and unlike a value check this cannot be beaten
+by rephrasing, because the number itself is what is banned.
+
+- **Don't write** "three tools ship", "twelve accents", "under N lines". Name
+  them, or say nothing.
+- **Do write** specs a reader acts on — the port, `num_ctx`, macOS 11, keyboard
+  keys. Those are not "how many X" claims; rule 2 in the linter checks the ones
+  that mirror code.
+- **Names are encouraged and checked for presence**: every registered tool and
+  every theme label must appear in the README, so a rename is caught.
+
+`tools/lint.py` also verifies quoted defaults equal the real ones, that doc links
+resolve, and that no source file is missing from the Layout block.
 
 Then the click-through list in `NOTES.md` → **Before you ship**. It is two
 minutes and it catches the class of bug that reading code does not.
