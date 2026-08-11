@@ -43,6 +43,12 @@ export const api = {
   updatePrompt: (id, body) => request(`/api/prompts/${id}`, { method: 'PUT', body }),
   deletePrompt: (id) => request(`/api/prompts/${id}`, { method: 'DELETE' }),
 
+  folders: () => request('/api/folders'),
+  createFolder: (body) => request('/api/folders', { method: 'POST', body }),
+  updateFolder: (id, body) => request(`/api/folders/${id}`, { method: 'PUT', body }),
+  // Never cascades: the server unfiles the chats and reports how many.
+  deleteFolder: (id) => request(`/api/folders/${id}`, { method: 'DELETE' }),
+
   chats: () => request('/api/chats'),
   createChat: (body) => request('/api/chats', { method: 'POST', body }),
   getChat: (id) => request(`/api/chats/${id}`),

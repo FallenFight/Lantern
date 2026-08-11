@@ -44,7 +44,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.0.3"
+VERSION = "1.1.0"
 
 # The update check. Unauthenticated and read-only; GitHub allows 60 requests an
 # hour per IP, which one check per launch cannot come near.
@@ -276,6 +276,19 @@ def prompts_path() -> Path:
     return DATA / "prompts.json"
 
 
+def folders_path() -> Path:
+    return DATA / "folders.json"
+
+
+# The chat fields a client may write. This was spelled out twice — once in the
+# PUT/PATCH route and once in the sendBeacon `/save` route — so adding a field to
+# one and not the other made writes work everywhere except page teardown. One
+# list, both routes.
+CHAT_WRITABLE = ("title", "pinned", "archived", "model", "persona_id",
+                 "system_override", "think", "tools", "params", "messages",
+                 "folder_id")
+
+
 def get_settings() -> dict:
     with _LOCK:
         stored = read_json(settings_path(), {})
@@ -378,6 +391,31 @@ def get_prompts() -> list:
         return seeded
 
 
+def get_folders() -> list:
+    """
+    Chat folders: `[{id, name, order}]`, and nothing else.
+
+    Not seeded. An empty list is the honest starting state — unlike personas and
+    prompts, an example folder is not a demonstration of anything, it is just
+    something to delete.
+
+    A folder holds no chats of its own. Membership lives on the chat as
+    `folder_id`, so a folder file that is lost or hand-edited costs you the
+    grouping and never a conversation.
+    """
+    with _LOCK:
+        data = read_json(folders_path(), None)
+        if isinstance(data, dict) and isinstance(data.get("folders"), list):
+            return data["folders"]
+        return []
+
+
+def save_folders(folders: list) -> list:
+    with _LOCK:
+        write_json(folders_path(), {"folders": folders})
+        return folders
+
+
 def save_prompts(prompts: list) -> list:
     with _LOCK:
         write_json(prompts_path(), {"prompts": prompts})
@@ -426,6 +464,7 @@ def chat_summary(chat: dict) -> dict:
         "archived": bool(chat.get("archived")),
         "model": chat.get("model"),
         "persona_id": chat.get("persona_id"),
+        "folder_id": chat.get("folder_id"),
         "message_count": len(messages),
         "preview": preview,
     }
@@ -1277,6 +1316,7 @@ class Handler(BaseHTTPRequestHandler):
                 "settings": get_settings(),
                 "personas": get_personas(),
                 "prompts": get_prompts(),
+                "folders": get_folders(),
                 "chats": list_chats(),
                 "version": VERSION,
                 "tools": tool_catalog(),
@@ -1462,6 +1502,54 @@ class Handler(BaseHTTPRequestHandler):
                 save_prompts(prompts)
                 return self.json_out({"ok": True, "removed": removed["id"]})
 
+        # ---- folders -----------------------------------------------------
+        if parts == ["folders"]:
+            if method == "GET":
+                return self.json_out({"folders": get_folders()})
+            if method == "POST":
+                body = self.body_json()
+                folders = get_folders()
+                folder = {
+                    "id": new_id("f"),
+                    "name": (body.get("name") or "New folder").strip()[:60],
+                    "order": len(folders),
+                    "created": time.time(),
+                }
+                folders.append(folder)
+                save_folders(folders)
+                return self.json_out(folder, 201)
+
+        if len(parts) == 2 and parts[0] == "folders":
+            folders = get_folders()
+            index = next((i for i, f in enumerate(folders) if f["id"] == parts[1]), None)
+            if index is None:
+                return self.fail(404, "No such folder")
+            if method in ("PUT", "PATCH"):
+                body = self.body_json()
+                if "name" in body:
+                    folders[index]["name"] = (body.get("name") or "").strip()[:60] \
+                        or folders[index]["name"]
+                if isinstance(body.get("order"), int):
+                    folders[index]["order"] = body["order"]
+                save_folders(folders)
+                return self.json_out(folders[index])
+            if method == "DELETE":
+                # Deleting a folder never deletes a conversation. Every chat in
+                # it becomes unfiled, which is the state it was in before the
+                # folder existed. This data folder has gone missing twice; a
+                # cascade here is exactly the shape of that accident.
+                removed = folders.pop(index)
+                save_folders(folders)
+                freed = 0
+                for path in sorted(CHATS.glob("c_*.json")):
+                    chat = load_chat(path.stem)
+                    if chat and chat.get("folder_id") == removed["id"]:
+                        chat["folder_id"] = None
+                        save_chat(chat)
+                        freed += 1
+                return self.json_out({"ok": True, "removed": removed["id"],
+                                      "unfiled": freed})
+
         # ---- backup / restore --------------------------------------------
         if parts == ["backup"] and method == "GET":
             ensure_dirs()
@@ -1476,6 +1564,7 @@ class Handler(BaseHTTPRequestHandler):
                 "settings": get_settings(),
                 "personas": get_personas(),
                 "prompts": get_prompts(),
+                "folders": get_folders(),
                 "chats": chats,
             })
 
@@ -1512,6 +1601,16 @@ class Handler(BaseHTTPRequestHandler):
                     save_personas(body["personas"])
                 if isinstance(body.get("prompts"), list):
                     save_prompts(body["prompts"])
+                # Restored chats carry `folder_id`, so without the folder list
+                # they would all land unfiled — the grouping would survive the
+                # backup and be lost by the restore. Merged, not replaced, so a
+                # restore never drops folders the current install already has.
+                if isinstance(body.get("folders"), list):
+                    known = {f.get("id") for f in get_folders() if isinstance(f, dict)}
+                    merged = get_folders() + [
+                        f for f in body["folders"]
+                        if isinstance(f, dict) and f.get("id") not in known]
+                    save_folders(merged)
                 if isinstance(body.get("settings"), dict):
                     save_settings(body["settings"])
             with _PARSE_LOCK:
@@ -1559,8 +1658,7 @@ class Handler(BaseHTTPRequestHandler):
             if not chat:
                 return self.fail(404, "No such chat")
             body = self.body_json()
-            for key in ("title", "pinned", "archived", "model", "persona_id",
-                        "system_override", "think", "tools", "params", "messages"):
+            for key in CHAT_WRITABLE:
                 if key in body:
                     chat[key] = body[key]
             save_chat(chat)
@@ -1580,8 +1678,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not chat:
                     return self.fail(404, "No such chat")
                 body = self.body_json()
-                for key in ("title", "pinned", "archived", "model", "persona_id",
-                            "system_override", "think", "tools", "params", "messages"):
+                for key in CHAT_WRITABLE:
                     if key in body:
                         chat[key] = body[key]
                 return self.json_out(save_chat(chat))

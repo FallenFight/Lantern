@@ -5,6 +5,7 @@ import {
   newChat, openChat, removeChat, queueSaveChat, flushChat, flushBeacon,
   currentModel, currentPersona, thinkingSupported, visionSupported, toolsSupported,
   isStreaming, anyStreaming, thinkingAdvertised, refreshUpdate,
+  refreshFolders, createFolder, renameFolder, deleteFolder, setChatFolder,
 } from './store.js';
 import { api } from './api.js';
 import {
@@ -28,6 +29,18 @@ const LAST_CHAT_KEY = 'lantern.lastChat';
 window.__lantern = { MOD };
 
 /* ═══════════════════════════ sidebar ═══════════════════════════ */
+
+/**
+ * Which folders are rolled up. Kept in localStorage rather than on the folder
+ * itself: it is a property of this window, not of the data, and writing it to
+ * the folder file would mean a disk write on every disclosure triangle.
+ */
+const COLLAPSED_KEY = 'lantern.folders.collapsed';
+const collapsedFolders = new Set((() => {
+  try { return JSON.parse(localStorage.getItem(COLLAPSED_KEY)) || []; } catch { return []; }
+})());
+const saveCollapsed = () =>
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedFolders]));
 
 function renderSidebar() {
   const list = $('#chat-list');
@@ -59,8 +72,45 @@ function renderSidebar() {
     pinned.forEach((chat) => list.append(chatRow(chat)));
   }
 
+  // Pinning already pulls a chat out of its date group, and it keeps doing that
+  // here — so a chat appears exactly once no matter how it is filed, and the
+  // whole list stays a single flat pass.
+  const unpinned = visible.filter((c) => !c.pinned);
+  const folders = [...S.folders].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const known = new Set(folders.map((f) => f.id));
+
+  for (const folder of folders) {
+    const inside = unpinned.filter((c) => c.folder_id === folder.id);
+    const open = !collapsedFolders.has(folder.id);
+    list.append(el('button', {
+      class: `folder-head${open ? ' open' : ''}`,
+      onclick: () => {
+        if (collapsedFolders.has(folder.id)) collapsedFolders.delete(folder.id);
+        else collapsedFolders.add(folder.id);
+        saveCollapsed();
+        renderSidebar();
+      },
+      oncontextmenu: (event) => { event.preventDefault(); openFolderMenu(folder, event); },
+    },
+      el('span', { class: 'caret', html: svg(ICON.caret, 'ic ic-sm') }),
+      el('span', { class: 'folder-name', text: folder.name }),
+      el('span', { class: 'folder-count', text: inside.length ? String(inside.length) : '' })));
+    if (!open) continue;
+    if (!inside.length) {
+      list.append(el('div', { class: 'folder-empty', text: 'Empty' }));
+      continue;
+    }
+    inside.forEach((chat) => {
+      const row = chatRow(chat);
+      row.classList.add('in-folder');
+      list.append(row);
+    });
+  }
+
+  // Unfiled, under the date buckets they have always used. A chat whose folder
+  // was deleted out from under it lands here rather than disappearing.
   let bucket = null;
-  for (const chat of visible.filter((c) => !c.pinned)) {
+  for (const chat of unpinned.filter((c) => !c.folder_id || !known.has(c.folder_id))) {
     const label = dayBucket(chat.updated);
     if (label !== bucket) {
       bucket = label;
@@ -476,6 +526,91 @@ function openToolsMenu() {
   });
 }
 
+/**
+ * Rename or delete a folder, from a right-click on its header.
+ *
+ * **Delete never touches a conversation.** The server unfiles every chat that
+ * pointed at the folder and reports how many, and the toast says so — the one
+ * thing a user needs to be sure of before clicking Delete on something that
+ * visually contains their chats.
+ */
+function openFolderMenu(folder, event) {
+  const at = event && event.clientX != null
+    ? { x: event.clientX, y: event.clientY } : null;
+  showMenu($('#chat-menu'), (menu) => {
+    menu.append(menuItem({
+      title: 'Rename folder', iconHtml: svg(ICON.edit, 'ic'),
+      run: async () => {
+        const name = prompt('Folder name', folder.name || '');
+        if (name === null || !name.trim()) return;
+        await renameFolder(folder.id, name.trim());
+        renderSidebar();
+      },
+    }));
+    menu.append(el('div', { class: 'menu-sep' }));
+    menu.append(menuItem({
+      title: 'Delete folder', iconHtml: svg(ICON.trash, 'ic'), danger: true,
+      run: async () => {
+        const inside = S.chats.filter((c) => c.folder_id === folder.id).length;
+        const warning = inside
+          ? `Delete the folder "${folder.name}"?\n\nThe ${inside} chat${inside === 1 ? '' : 's'} `
+            + 'inside will be kept and moved out of the folder, not deleted.'
+          : `Delete the empty folder "${folder.name}"?`;
+        if (!confirm(warning)) return;
+        const result = await deleteFolder(folder.id);
+        renderSidebar();
+        toast(result.unfiled
+          ? `Folder deleted — ${result.unfiled} chat${result.unfiled === 1 ? '' : 's'} kept`
+          : 'Folder deleted');
+      },
+    }));
+  }, at);
+}
+
+/** The folder list for a chat, plus an escape hatch to make a new one. */
+function openMoveToFolder(chat, event) {
+  const at = event && event.clientX != null
+    ? { x: event.clientX, y: event.clientY } : null;
+  showMenu($('#chat-menu'), (menu) => {
+    const folders = [...S.folders].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    for (const folder of folders) {
+      menu.append(menuItem({
+        title: folder.name,
+        on: chat.folder_id === folder.id,
+        run: async () => {
+          await setChatFolder(chat, folder.id);
+          collapsedFolders.delete(folder.id);   // show where it went
+          saveCollapsed();
+          renderSidebar();
+          toast(`Moved to ${folder.name}`);
+        },
+      }));
+    }
+    if (folders.length) menu.append(el('div', { class: 'menu-sep' }));
+    menu.append(menuItem({
+      title: 'New folder…', iconHtml: svg(ICON.plus, 'ic'),
+      run: async () => {
+        const name = prompt('Folder name', '');
+        if (name === null || !name.trim()) return;
+        const folder = await createFolder(name.trim());
+        await setChatFolder(chat, folder.id);
+        renderSidebar();
+        toast(`Moved to ${folder.name}`);
+      },
+    }));
+    if (chat.folder_id) {
+      menu.append(menuItem({
+        title: 'Remove from folder', iconHtml: svg(ICON.x, 'ic'),
+        run: async () => {
+          await setChatFolder(chat, null);
+          renderSidebar();
+          toast('Moved out of the folder');
+        },
+      }));
+    }
+  }, at);
+}
+
 function openChatMenuFor(chat, event) {
   const target = chat || S.chat;
   if (!target) return;
@@ -526,6 +661,10 @@ function openChatMenuFor(chat, event) {
         emit('chat', { focus: true });
         toast('Duplicated');
       },
+    }));
+    menu.append(menuItem({
+      title: 'Move to folder…', iconHtml: svg(ICON.folder, 'ic'),
+      run: () => openMoveToFolder(target, event),
     }));
     menu.append(menuItem({
       title: target.pinned ? 'Unpin' : 'Pin to top', iconHtml: svg(ICON.pin, 'ic'),
@@ -989,6 +1128,13 @@ function setupCommands() {
     { title: 'Toggle tools', keywords: 'tool calling function date time', iconHtml: svg(ICON.tool, 'ic'), when: () => toolsSupported(), run: toggleTools },
     { title: 'Tools: off', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(false) },
     { title: 'Tools: on', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(true) },
+    { title: 'New folder', keywords: 'folder group organise organize sort', iconHtml: svg(ICON.folder, 'ic'), run: async () => {
+      const name = prompt('Folder name', '');
+      if (name === null || !name.trim()) return;
+      await createFolder(name.trim());
+      renderSidebar();
+      toast('Folder created');
+    } },
     { title: 'Manage personas', keywords: 'system prompt character', keys: `${MOD}P`, run: openPersonas },
     { title: 'Prompt library', keywords: 'saved prompts snippets reuse template', run: openPrompts },
     { title: 'Manage models', keywords: 'pull download delete ollama', keys: `${MOD}M`, run: openModels },
@@ -1194,6 +1340,7 @@ async function init() {
   on('models', renderTopbar);
   on('personas', renderTopbar);
   on('prompts', setupCommands);   // the palette lists saved prompts by name
+  on('folders', renderSidebar);
   on('persona-changed', () => { renderTopbar(); renderThread(); });
   on('model-changed', () => { renderTopbar(); });
   on('foot', updateFoot);

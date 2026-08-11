@@ -443,6 +443,32 @@ button { cursor: pointer; background: none; border: 0; }
 }
 .foot-btn:hover { background: var(--bg-hover); color: var(--fg); }
 
+/* folders — a header the list groups under, not a container that owns rows */
+.folder-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 7px 10px 6px; margin-top: 3px;
+  color: var(--fg-2); font-size: .78rem; font-weight: 600;
+  letter-spacing: .02em; text-align: left; border-radius: var(--r-sm);
+  transition: background .15s, color .15s;
+}
+.folder-head:hover { background: var(--bg-hover); color: var(--fg); }
+.folder-head .caret { display: inline-flex; transition: transform .18s ease; opacity: .8; }
+.folder-head.open .caret { transform: rotate(90deg); }
+.folder-head .folder-name {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.folder-head .folder-count {
+  font-size: .72rem; font-weight: 500; color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.folder-empty {
+  padding: 4px 10px 6px 26px; color: var(--fg-3);
+  font-size: .74rem; font-style: italic;
+}
+/* Rows inside a folder sit in from its header. Marked with a class rather than
+   a sibling selector — `~` would also catch the unfiled rows further down. */
+.chat-row.in-folder { padding-left: 20px; }
+
 /* version line — quiet until there is something to say */
 .foot-version {
   display: flex; align-items: center; gap: 6px; padding: 4px 10px 1px;

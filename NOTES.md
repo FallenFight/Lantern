@@ -411,6 +411,60 @@ switch this on — and the Security section names the one call, where the gate i
 and what is not trusted in the reply. **If you ever add a second outbound call,
 that section is the thing to update first.**
 
+## Folders
+
+Chosen over tags, and the reason is the sidebar rather than taste. It is ~260px
+wide: tags want chips on every row and a filter bar above them, folders want one
+label per group. And **one chat belongs to one folder**, which keeps
+`renderSidebar()` a single flat pass where every chat is rendered exactly once.
+Tags remain possible later — they would be a separate additive field, not a
+replacement.
+
+Single level. Nesting means a tree, drag-and-drop, and path rendering in a narrow
+column, and the value falls off fast.
+
+**A folder owns nothing.** Membership is `folder_id` on the chat; `folders.json`
+is a list of `{id, name, order}` and no more. Losing or hand-editing that file
+costs the grouping and never a conversation — the same instinct as keeping chats
+as readable JSON, which is what allowed hand-recovery twice.
+
+**Deleting a folder unfiles its chats, never deletes them.** The server clears
+`folder_id` on each and reports how many, the confirm text says the chats will be
+kept before you click, and the toast repeats it afterwards. A cascade here is
+precisely the shape of the accident this data folder has already had twice.
+
+Consequences that needed handling:
+
+- **Pinned still wins.** A pinned chat appears under *Pinned* even when filed, so
+  no chat is ever drawn twice. That is the existing behaviour with date groups,
+  left alone rather than made clever.
+- **An unknown `folder_id` falls back to unfiled** rather than vanishing. The
+  sidebar filters on folders it knows about, so a chat pointing at a folder that
+  no longer exists still appears — a row that silently disappears reads exactly
+  like data loss.
+- **Collapse state lives in `localStorage`, not on the folder.** It is a property
+  of this window, and writing it to the folder file would mean a disk write on
+  every disclosure triangle.
+- **Backup and restore carry folders**, or the grouping would survive the backup
+  and be lost by the restore. Restore *merges* the folder list, matching the rule
+  that restore never destroys what is already there.
+- Indentation for rows in a folder is a class on the row, not
+  `.folder-head + .chat-row ~ .chat-row` — the sibling combinator also catches
+  every unfiled row further down the list.
+
+**Trap found doing this:** the writable-field whitelist for a chat was spelled
+out twice, in the PUT route and in the `sendBeacon` `/save` route. Adding
+`folder_id` to one and not the other would have made filing work everywhere
+except page teardown — a bug that only shows up when you close the window. It is
+one `CHAT_WRITABLE` constant now.
+
+**Verified:** folders created, renamed, filed into and collapsed; collapse state
+survives a reload; deleting a folder holding a chat leaves all chats present with
+their messages, unfiled. And the compatibility promise both ways — **v1.0.3 run
+against a data folder written by this build** lists every chat, opens a filed one
+with its messages, and *preserves* `folder_id` through its own save, because it
+round-trips the whole chat dict. Degraded, not broken, exactly as promised.
+
 ## The 1.0 compatibility promise
 
 1.0 is not "feature complete" — it is **"ready for strangers"**. The thing a
@@ -734,7 +788,7 @@ Still to do, and none of it is blocking anything:
 
 ## Where things stand
 
-**Shipped: `v1.0.3`, and the repo is public.**
+**Shipped: `v1.1.0`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
@@ -928,9 +982,9 @@ Then, ranked by value, from the feature audit:
    until you paste a link. SearXNG on localhost later if you want real querying;
    it fits this project better than an API key. Both are now tools, so they are
    one `TOOLS` entry each.
-4. **Folders or tags for chats** — date grouping and pinning only today.
-   Deferred to **1.0** deliberately; it is the last structural gap against apps
-   like Msty, but it is not what 0.9.5 is about.
+4. ~~Folders or tags for chats~~ — **built.** Folders, not tags; the reasoning
+   and the traps are under *Folders* above. Tags are still possible as a separate
+   additive field if per-chat labels ever earn their place.
 5. Speech-to-text / TTS.
 6. Context compaction when the window fills. The cheap half is done — the default
    `num_ctx` went from 8192 to **32768** in 0.9.0, measured at **+0.83 GB

@@ -11,6 +11,7 @@ export const S = {
   settings: null,
   personas: [],
   prompts: [],        // reusable user prompts (the library)
+  folders: [],        // chat folders; membership is folder_id on each chat
   models: [],
   running: [],
   chats: [],           // summaries for the sidebar
@@ -202,6 +203,7 @@ export async function loadBootstrap() {
   S.settings = data.settings;
   S.personas = data.personas || [];
   S.prompts = data.prompts || [];
+  S.folders = data.folders || [];
   S.chats = data.chats || [];
   S.models = data.models || [];
   S.running = data.running || [];
@@ -218,6 +220,7 @@ export async function loadBootstrap() {
   emit('settings');
   emit('personas');
   emit('prompts');
+  emit('folders');
   emit('models');
   emit('chats');
 }
@@ -260,6 +263,51 @@ export async function refreshModels() {
 export async function refreshChatList() {
   const data = await api.chats();
   S.chats = data.chats || [];
+  emit('chats');
+}
+
+/**
+ * Chat folders.
+ *
+ * A folder owns nothing: membership is `folder_id` on the chat, so the folder
+ * list is presentation and the conversations are the data. Losing folders.json
+ * costs you the grouping and never a chat.
+ */
+export async function refreshFolders() {
+  const data = await api.folders();
+  S.folders = data.folders || [];
+  emit('folders');
+  return S.folders;
+}
+
+export async function createFolder(name) {
+  const folder = await api.createFolder({ name });
+  await refreshFolders();
+  return folder;
+}
+
+export async function renameFolder(id, name) {
+  await api.updateFolder(id, { name });
+  return refreshFolders();
+}
+
+/**
+ * Delete a folder. Its chats are unfiled, never removed — the server does the
+ * unfiling, and this refreshes the list so rows move rather than vanish.
+ */
+export async function deleteFolder(id) {
+  const result = await api.deleteFolder(id);
+  await refreshFolders();
+  await refreshChatList();
+  return result;
+}
+
+/** Move a chat into a folder, or out of one with `null`. */
+export async function setChatFolder(chat, folderId) {
+  chat.folder_id = folderId;
+  await api.updateChat(chat.id, { folder_id: folderId });
+  const summary = S.chats.find((c) => c.id === chat.id);
+  if (summary) summary.folder_id = folderId;
   emit('chats');
 }
 

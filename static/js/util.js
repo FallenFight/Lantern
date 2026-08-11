@@ -51,6 +51,7 @@ export const ICON = {
   // stick out of the head, and `M4 8l3 3` was a detached slash. It is also in
   // index.html; the two must change together.
   tool: '<path d="M21 4.2a6 6 0 01-7.6 7.6l-7 7a2.2 2.2 0 01-3.2-3.2l7-7a6 6 0 017.6-7.6l-3.5 3.5 3.2 3.2z"/>',
+  folder: '<path d="M3 7a2 2 0 012-2h4l2 2.5h8a2 2 0 012 2V18a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>',
   compare: '<rect x="3" y="4" width="7.5" height="16" rx="1.5"/><rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/>',
 };
 

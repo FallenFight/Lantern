@@ -291,6 +291,18 @@ Auto-generated titles, pin to top, **archive**, date grouping, rename, duplicate
 **Find in chat** (⌘F) highlights every hit with ⏎/⇧⏎ to step; **search all chats**
 (⌘⇧F) is full-text across every message on disk.
 
+**Folders.** Right-click a chat → *Move to folder…*, or ⌘K → *New folder*.
+Folders sit at the top of the sidebar with a count, collapse with a click, and
+remember which ones you rolled up. Right-click a folder header to rename or
+delete it. Chats you haven't filed stay under their date groups exactly as
+before, and a pinned chat stays pinned to the top wherever it is filed — so every
+chat appears in exactly one place.
+
+**Deleting a folder never deletes a conversation.** The chats inside are moved
+out of it, not removed, and the confirmation says so before you click. A folder
+holds nothing of its own: membership is a field on the chat, so losing the folder
+list costs you the grouping and never a message.
+
 Export one chat as Markdown or JSON, or **back up everything** — all chats,
 personas, and settings in a single file. Restore offers merge (never overwrites
 an existing chat) or replace.
