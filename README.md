@@ -75,6 +75,31 @@ opens a Chromium browser in `--app` mode, or your default browser.
 App data lives in `~/Library/Application Support/Lantern`, so replacing the app
 never touches your history. Logs go to `lantern.log` beside it.
 
+### Updating
+
+Same shape as installing — pull, rebuild, replace:
+
+```bash
+git pull
+./build-app.sh
+rm -rf /Applications/Lantern.app
+cp -R dist/Lantern.app /Applications/
+```
+
+**The `rm -rf` matters.** `cp -R` onto an existing `.app` *merges* into it, so
+files a newer version no longer ships stay behind inside the bundle. Removing it
+first gives you exactly the new build. Quit Lantern before you swap it.
+
+Your chats, personas and settings are untouched: they live in
+`~/Library/Application Support/Lantern`, outside the bundle, and the build script
+only seeds that folder when it does not already exist.
+
+The version is shown under the sidebar buttons and in **Settings → About**. If
+you want the app to tell you when a release has happened, turn on
+[**Check for updates**](#the-one-call-that-leaves-your-machine) — it is off by
+default, and it is the only thing in Lantern that talks to anything but your own
+Ollama.
+
 ### From a terminal
 
 ```bash
@@ -297,10 +322,11 @@ thinking duration under each reply. Resident VRAM per loaded model.
 
 ## Appearance
 
-Dark, light, or follow-the-system, nine accents, adjustable text size, message
-width, and density. Translucency is limited to the chrome so the message list
-stays at full frame rate; `prefers-reduced-transparency` and
-`prefers-reduced-motion` are both honoured.
+Six themes — four dark (Lantern, Midnight, Cyber, Carbon), two light (Paper,
+Mist) — or follow the system. Twelve accents, adjustable text size, message
+width, and density. Every accent works on every theme. Translucency is limited to
+the chrome so the message list stays at full frame rate;
+`prefers-reduced-transparency` and `prefers-reduced-motion` are both honoured.
 
 ---
 
@@ -421,7 +447,7 @@ static/
 data/                created on first run (or ~/Library/Application Support/Lantern)
 ```
 
-Under 10,000 lines. Chat writes are atomic (temp file + `os.replace`).
+Under 11,000 lines of source. Chat writes are atomic (temp file + `os.replace`).
 
 ## Notes
 

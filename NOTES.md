@@ -606,10 +606,14 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] **Docs pass.** Does `README.md` still describe what the app does? Does this
       file have the new traps? Is anything in `CLAUDE.md` now untrue? Every
       feature or major change owns its documentation — README has shipped wrong
-      **four** times (a stale model name, a claim that Lantern never sent tools
-      which survived a whole release, and the line count twice). The line count
-      is now deliberately vague — "under 9,000 lines" — because a precise one
-      drifts every release and nobody notices
+      **six** times: a stale model name, a claim that Lantern never sent tools
+      which survived a whole release, the line count **three** times, and an
+      accent count that said nine when there have been twelve for months.
+      **The pattern is countable things.** Vague wording does not fix it — the
+      line count was softened to "under N lines" and was wrong again at the next
+      release, because nobody re-counts prose. Anything of the form *"N of X"* in
+      the README either needs a check in `tools/lint.py` or should not be a
+      number at all
 - [ ] Reload with a reply in flight; switch chats mid-reply
 
 Also run:
@@ -623,14 +627,40 @@ The Stop abort path was traced and found correct; the button that called it was
 never clicked. And this file already held the answer to the theme bug — a rule
 written here is worth nothing if nothing checks the code against it. That is what
 `tools/lint.py` is for: stdlib only, and every check in it maps to a bug that
-really shipped. It knows two traps so far, and run against the commit before
-these fixes it flags **both** the Stop button and the theme button. Add a check
-whenever a new trap costs real time.
+really shipped. Run against the commit before those fixes it flags **both** the
+Stop button and the theme button; run against `v1.0.3` it flags the "nine
+accents" claim, five theme names the README never mentioned, and a line count
+that was over its own stated bound. Add a check whenever a new trap costs real
+time.
 
 A first attempt at this was a plain `grep` for bare listeners. It matched all 20
 of them, nearly all harmless, because a grep cannot see the target function's
 signature — a check that cries wolf gets ignored, which is worse than no check.
 The script correlates the listener with the function's parameter list instead.
+
+**A check that matches one phrasing is a check you can edit your way out of by
+accident.** The line-count claim had been guarded since 0.9.5, and it still went
+stale a third time: the wording was softened from "under 10,000 lines" to "about
+10,000 lines of source", which matched neither pattern the check looked for, so
+it passed on a sentence it could not see. Two consequences, both now in the
+script:
+
+- The claim is **required** to exist in a checkable shape. Removing or rewording
+  it is itself a failure, with a message saying to delete the check if the claim
+  is genuinely gone. Silence is the one outcome a check must never have.
+- A bound must also be **tight**. "Under 900,000 lines" is true and worthless, so
+  a bound more than 1.3× the real count fails too.
+
+And the count itself was wrong: `COUNTED_SOURCES` omitted `build-app.sh` and
+`lantern`, hiding ~280 lines of real shipping logic, so the README could claim
+"under 10,000" while `wc` said 10,044. **If it ships, it counts.**
+
+The palette checks are the same shape as the tool-count check, because it was the
+same failure: the README said "nine accents" while `theme.js` had declared twelve
+for months. Accent count, theme count, the dark/light split, and every theme
+*name* are now held against `theme.js`. All seven failure modes were verified by
+breaking them one at a time against an extracted tree — that is what the
+`python3 tools/lint.py <dir>` argument is for.
 
 ## Testing notes
 
@@ -646,10 +676,11 @@ The script correlates the listener with the function's parameter list instead.
 - `sendMessage()` awaits the whole stream. Don't `await` it in a test unless you
   want to block.
 
-## UI redesign — in progress
+## UI redesign — landed, with optional polish left
 
-A second visual pass is **partially done**, driven by two references the user
-supplied: an iOS "Liquid Glass" tab bar and the Gemini app.
+A second visual pass, driven by two references the user supplied: an iOS "Liquid
+Glass" tab bar and the Gemini app. The substance of it shipped in 0.9.5; what is
+left is polish nothing depends on.
 
 Landed:
 
@@ -667,6 +698,11 @@ Landed:
 - **Pill group + satellite** — toolbar controls ride in one capsule with the
   overflow menu detached as its own circle, mirroring the tab bar reference.
   The topbar itself is now transparent so the wash shows through.
+- **The segmented controls in Settings take the same lens** — one indicator moved
+  by transform rather than a background on each button, so the travel is
+  composited instead of repainted. `box.placeLens()` in `modals.js`, called by
+  `openModal()` once the dialog is on screen; the frame-callback trap that cost
+  real time getting there is under *Architecture notes*.
 
 Themes: `dark` (Lantern), `midnight`, `cyber`, `carbon` are dark; `light`
 (Paper) and `mist` are light; plus `system`. Defined in `THEMES` in `theme.js`
@@ -678,11 +714,9 @@ Menus, modals, palette and toasts use `--panel` (97-98% opaque), not
 `--glass-deep`. Blur alone did not make them readable over a busy thread, and
 raising opacity let the blur drop from 28-34px to 14px, which is cheaper.
 
-Still to do — folded into the 0.9.5 plan below:
+Still to do, and none of it is blocking anything:
 
 - The wash is weaker than the reference; it wants to be bolder near the top.
-- Sliding lens for the segmented controls in Settings (same treatment as the
-  sidebar) — currently a static `.on` background.
 - The composer could take the same lens treatment on its send button.
 - Light theme has had far less attention than dark on all of the above.
 
@@ -700,21 +734,21 @@ with credentials stripped from the environment builds and runs.
 promise it carries is above, under *The 1.0 compatibility promise* — it is about
 the chat JSON on disk, not an API.
 
-**`1.0.1` is a bug-fix release**, and the only one so far that fixed something
-that *lost data*: the orphan-closing-tag strip, plus the comparison bug pass
-above — five bugs, two of which destroyed messages. No new features, no format
-change. The 1.0 compatibility promise holds: chats written by 1.0.0 open
-unchanged, and a message left with a single-entry `variants` array by the old
-failure path still loads.
+The three patch releases after it, oldest first:
 
-**`1.0.3` puts the version under the sidebar buttons** and adds an opt-in update
-check — the first thing in the app that can reach past your own machine, and the
-reasoning for how it is gated is in *The update check* above.
-
-**`1.0.2` redraws the `tool` icon**, which had shipped malformed since 0.9.0 —
-see the icon note near the top of this file for the two SVG mistakes and the
-lesson. Cosmetic only, one release on its own because the Tools pill is on screen
-the whole time you use the app.
+- **`1.0.1`** — the only release so far that fixed something which *lost data*:
+  the orphan-closing-tag strip, plus the comparison bug pass above, five bugs of
+  which two destroyed messages. No new features, no format change. The 1.0
+  compatibility promise holds: chats written by 1.0.0 open unchanged, and a
+  message left with a single-entry `variants` array by the old failure path still
+  loads.
+- **`1.0.2`** — redraws the `tool` icon, malformed since 0.9.0. See the icon note
+  near the top of this file for the two SVG mistakes and the lesson. Cosmetic
+  only, and its own release because the Tools pill is on screen the whole time
+  you use the app.
+- **`1.0.3`** — puts the version under the sidebar buttons and adds the opt-in
+  update check: the first thing in the app that can reach past your own machine.
+  How it is gated is under *The update check* above.
 
 **Still not done, and the biggest gap:** the README has **no screenshots**. For a
 UI project that matters more than any prose in it. Three worth taking: the thread
@@ -825,9 +859,12 @@ renders as an empty bubble. Seen with qwen3.5-9b answering a tool result inside
 its reasoning — 26 tokens out, all of them thinking. It predates comparison and is
 not part of it.
 
-### The original design, for the parts not yet built
+### The original design, kept as the record of why
 
-Generation is **sequential**, and the rejected-approaches table above has the
+**All of this shipped** — it is here because the reasoning is the useful part,
+not because anything is outstanding. The one idea below that was never built is
+the thumbs-up leaderboard, and it stays unbuilt until there is a reason to want
+it. Generation is **sequential**, and the rejected-approaches table above has the
 memory arithmetic for why parallel cannot work here. The rest:
 
 - **Variants live on the assistant message**, not in a message tree. Open WebUI
@@ -852,20 +889,22 @@ memory arithmetic for why parallel cannot work here. The rest:
 
 ## Still open
 
-**Going public at 1.0.** `v0.8.0`, `v0.8.1` and `v0.9.0` are tagged and released,
-but **the repo is private by choice until 1.0** — so those releases are a private
-record, not an announcement. Two consequences: the README already addresses
-strangers (install steps, requirements, a clone URL) and is a promissory note
-rather than a description of today; and **the stranger path cannot be tested
-while private** — a fresh clone only worked because the author was authenticated.
-Before 1.0, clone with credentials unset, or flip public briefly and back.
+**Going public is done.** The repo is public, `v1.0.0` through `v1.0.3` are
+tagged and released, and the stranger path is verified — an anonymous clone with
+credentials stripped from the environment builds and runs. The README describes
+today rather than promising a future.
 
 Distribution is settled: **source-only**, because `build-app.sh` ad-hoc signs
 (`codesign --sign -`), so a downloaded `.app` is quarantined and reads as
 *"Lantern is damaged"* — the worst possible message for something that is fine.
 Notarising needs a $99/yr Apple Developer account. Building locally sidesteps
-quarantine entirely and fits the zero-dependency story. Still missing for 1.0:
-**README screenshots**, which for a UI app matter more than any prose in it.
+quarantine entirely and fits the zero-dependency story. The consequence is that
+updating is manual, which is what the update check in 1.0.3 exists to make
+visible; the README has the pull/rebuild/replace steps under *Updating*.
+
+**Still missing: README screenshots**, which for a UI app matter more than any
+prose in it. Three worth taking: the thread mid-reply, an expanded tool call, and
+the compare view. Deliberately deferred, not forgotten.
 
 Then, ranked by value, from the feature audit:
 
