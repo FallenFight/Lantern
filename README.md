@@ -12,8 +12,8 @@ account, no telemetry, no menus you'll never open.
   Back it up with `cp`, diff it with `git`, delete it with `rm`.
 - **Offline.** Out of the box the only network call is to your local Ollama. No
   CDNs — the markdown renderer, syntax highlighter, and maths renderer are
-  written from scratch. There is exactly one thing that can reach further, it is
-  **off until you turn it on**, and it is named below.
+  written from scratch. Two things can reach further — an update check and a URL
+  reader — and both are **off until you turn them on**. Both are named below.
 
 See [`NOTES.md`](NOTES.md) for design decisions, rejected approaches, and traps.
 
@@ -98,8 +98,8 @@ only seeds that folder when it does not already exist.
 The version is shown under the sidebar buttons and in **Settings → About**. If
 you want the app to tell you when a release has happened, turn on
 [**Check for updates**](#the-one-call-that-leaves-your-machine) — it is off by
-default, and it is the only thing in Lantern that talks to anything but your own
-Ollama.
+default. It and the URL reader are the only things in Lantern that talk to
+anything but your own Ollama, and both are off until you switch them on.
 
 ### From a terminal
 
@@ -204,6 +204,10 @@ These ship:
 - **`search_chats`** — full-text search across your saved conversations, so
   "what did I conclude about X?" can be answered from what you actually said.
   It returns titles, dates and short excerpts, never whole conversations.
+- **`read_url`** — fetches a web page and reads its text, so you can paste a link
+  and ask about it. **Off by default**, in Settings → Behaviour: it is the only
+  tool that reaches off your machine, and the *model* picks the address. See
+  [the fence around it](#the-url-reader) below before switching it on.
 - **`calculate`** — exact arithmetic. Models get long multiplication and
   percentages subtly wrong; this evaluates the expression properly. It parses
   with Python's `ast` and walks the tree by hand against a whitelist — never
@@ -232,7 +236,8 @@ and how long it took. Expand it to see the exact arguments and the exact JSON
 returned, so nothing the model was told is hidden from you.
 
 Tools run **on this machine, in the server process, read-only** — no shell, no
-file writes, no network. The client asks for tools by name and `server.py`
+file writes, and no network **except `read_url`**, which is off by default and
+fenced as described below. The client asks for tools by name and `server.py`
 supplies the schema from its own registry, so the front end can never describe a
 callable the server cannot run. A reply is capped at a few rounds of calls; past
 that the model is asked once more with no tools attached so the turn still ends
@@ -411,6 +416,41 @@ should be able to check:
 Leave it off and Lantern behaves exactly as it did before the feature existed:
 the version still shows in the sidebar and in Settings, it just never asks
 anyone whether it is current.
+
+### The URL reader
+
+The other thing that can reach off your machine, and the more serious of the two,
+because **the model chooses the address**. Switched on in Settings → Behaviour, it
+adds a `read_url` tool so you can paste a link and ask about the page.
+
+Left off, it does not exist as far as the model is concerned. The switch is
+enforced in three places on the server: the tool is absent from the catalogue the
+interface lists, absent from the tools the model is told about, and refused if
+something calls it directly. Gating in one place would leave the other two open.
+
+What the fetch will not do, switched on:
+
+- **Anything but `http` and `https`.** `file:`, `data:`, `ftp:` and the rest are
+  refused.
+- **Anything on this machine or your private network.** The check is on the
+  resolved IP address, not the hostname, so `localhost`, `127.0.0.1`, `[::1]`,
+  `192.168.x.x`, the cloud metadata address and names that merely *resolve* to
+  those are all refused. This matters: Lantern's own API and Ollama's both listen
+  on localhost, and without this a page could talk the model into reading every
+  chat you have and putting it in its own context.
+- **Follow a redirect out of those rules.** Every hop is re-checked, so a public
+  URL that redirects to a private one is stopped at the redirect.
+- **Hang your conversation.** Every request has a hard timeout, the body read is
+  capped, and redirects are bounded. A site that never answers ends the tool call
+  with "did not respond", and the reply carries on.
+
+Failures are always reported, never invented: a timeout, a 404, a PDF, a blocked
+address and an oversized page each come back as a plain message the model is told
+to relay rather than guess around. Every call is visible in the thread with the
+exact URL and what came back, as with any other tool.
+
+It reads one page you point it at. There is no search engine, no crawling, and no
+following of links found on the page.
 
 ---
 

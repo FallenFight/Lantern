@@ -12,10 +12,13 @@ traps that cost real time — read it before changing anything structural.**
 - **`server.py` stays Python 3.9-compatible**, so the app can fall back to the
   `/usr/bin/python3` that ships with macOS. No `match`, no `X | Y` at runtime.
 - **Offline by default.** The only network call is to the local Ollama. Anything
-  that changes that is opt-in and gets raised first. There is exactly one
-  exception so far — the update check added in 1.0.3, off by default and gated
-  **on the server** so the switch is the only thing that can produce a request.
-  See `NOTES.md` → *The update check*. A second one needs the same conversation.
+  that changes that is opt-in and gets raised first. There are **two** exceptions
+  so far, both off by default and both gated **on the server** so the switch is
+  the only thing that can produce a request: the update check added in 1.0.3, and
+  the `read_url` tool. The URL reader is the sharper one — the
+  *model* picks the address, so it is fenced to public http(s) only, on the
+  resolved IP, re-checked at every redirect. See `NOTES.md` → *The update check*
+  and *The URL reader*. A third one needs the same conversation.
 - **The same-origin guard in `server.py` stays.** Don't loosen it.
 
 ## Data safety

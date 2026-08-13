@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import ipaddress
 import json
 import math
 import mimetypes
@@ -25,14 +26,17 @@ import operator
 import os
 import re
 import secrets
+import socket
 import sys
 import threading
 import time
+import zlib
 import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -44,7 +48,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # The update check. Unauthenticated and read-only; GitHub allows 60 requests an
 # hour per IP, which one check per launch cannot come near.
@@ -93,6 +97,10 @@ DEFAULT_SETTINGS = {
     # own default (5m). Longer avoids paying a full reload after a pause.
     "keep_alive": "",
     "preload_default": False,
+    # Lets the model fetch a web page. Off by default: it is the only tool that
+    # reaches off this machine, and the *model* picks the address. See the fence
+    # around _tool_read_url.
+    "web_reader": False,
     # Whether to ask GitHub, once per launch, if a newer release exists. Off by
     # default and the only outbound call in the app that is not to your local
     # Ollama — the offline guarantee is that nothing leaves the machine unless
@@ -694,6 +702,273 @@ def generate_title(model: str, transcript: str) -> str:
 
 TOOL_ROUND_LIMIT = 4          # tool-executing rounds per reply, then answer only
 
+# ── the URL reader ────────────────────────────────────────────────────────
+#
+# The second thing in Lantern that can reach past this machine, and unlike the
+# update check the *model* chooses the address. That makes it a server-side
+# request forgery primitive unless it is fenced, and the fence matters more than
+# the feature: `http://127.0.0.1:8777/api/chats` would put every saved
+# conversation into the model's context, and Ollama's own API sits on 11434.
+#
+# So: http(s) only, the resolved IP must be public, every redirect hop is
+# re-checked, the body read is bounded, and every request has a hard timeout.
+# It is off until `web_reader` is switched on, gated on the server exactly like
+# the update check.
+WEB_TIMEOUT = 8               # seconds per socket operation
+# A wall-clock cap on the whole call, redirects included. `timeout=` on the
+# socket is per *operation*, so a server dripping one byte a second resets it
+# forever and the read never ends — verified: it ran past 12s against a 2s
+# timeout. Three redirect hops would also stack to 24s without this.
+WEB_TOTAL_TIMEOUT = 15
+WEB_MAX_BYTES = 2_000_000     # stop reading the body here, whatever it claims
+WEB_MAX_REDIRECTS = 3
+WEB_MAX_CHARS = 6000          # a tool result is replayed on every later turn
+WEB_TYPES = ("text/html", "application/xhtml+xml", "text/plain", "text/markdown")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow redirects inside urllib so each hop can be re-checked."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def web_block_reason(url: str):
+    """
+    Why this URL may not be fetched, or None if it may.
+
+    The check is on the *resolved address*, not the hostname, because
+    `localtest.me` and friends resolve to 127.0.0.1 and a name-based blocklist
+    would wave them straight through.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return "that is not a URL I can parse"
+    if parts.scheme not in ("http", "https"):
+        return ("only http and https can be read (%s is not allowed)"
+                % (parts.scheme or "no scheme"))
+    if not parts.hostname:
+        return "the URL has no host"
+    try:
+        port = parts.port
+    except ValueError:
+        return "the URL has an invalid port"
+    try:
+        infos = socket.getaddrinfo(parts.hostname, port or
+                                   (443 if parts.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+    except OSError:
+        return "the host could not be resolved"
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return "the host resolved to something unrecognisable"
+        if (ip.is_loopback or ip.is_private or ip.is_link_local
+                or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+            return ("it resolves to %s, which is on this machine or this "
+                    "private network" % ip)
+    return None
+
+
+def _web_decompress(raw: bytes, encoding: str) -> bytes:
+    """
+    Undo Content-Encoding, bounded.
+
+    `max_length` matters: a couple of megabytes of gzip expands to gigabytes if
+    you let it, and this runs in the server process.
+    """
+    if encoding not in ("gzip", "deflate", "x-gzip"):
+        return raw
+    try:
+        wbits = zlib.MAX_WBITS | 16 if encoding != "deflate" else zlib.MAX_WBITS
+        return zlib.decompressobj(wbits).decompress(raw, WEB_MAX_BYTES)
+    except Exception:
+        return raw          # not really compressed, or truncated — use as-is
+
+
+class _TextExtractor(HTMLParser):
+    """Readable text out of HTML. Not a browser — enough for a model to read."""
+
+    SKIP = {"script", "style", "noscript", "template", "svg", "head"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.title = ""
+        self._skip = 0
+        self._in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP:
+            self._skip += 1
+        elif tag == "title":
+            self._in_title = True
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP and self._skip:
+            self._skip -= 1
+        elif tag == "title":
+            self._in_title = False
+        elif tag in ("p", "div", "br", "li", "tr", "td", "h1", "h2", "h3", "h4",
+                     "h5", "h6", "section", "article", "nav", "header", "footer",
+                     "aside", "ul", "ol", "blockquote", "pre", "figure"):
+            # Without every block-level closer here, neighbouring blocks run
+            # together — a <nav>Skip</nav><h1>Heading</h1> came out "SkipHeading".
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title += data
+        elif not self._skip:
+            self.parts.append(data)
+
+    def text(self):
+        joined = "".join(self.parts)
+        # collapse runs of blank lines and stray indentation without losing
+        # paragraph breaks, which are most of what makes a page readable
+        joined = re.sub(r"[ \t\r\f\v]+", " ", joined)
+        joined = re.sub(r" ?\n ?", "\n", joined)
+        return re.sub(r"\n{3,}", "\n\n", joined).strip()
+
+
+def _tool_read_url(args: dict) -> dict:
+    """
+    Fetch one page and return its readable text.
+
+    Every failure is a *result*, never an exception: a hung host, a 404, a PDF,
+    a blocked address and an oversized page all come back as text the model can
+    read and act on. That is what keeps a bad link from killing the reply.
+    """
+    url = (args.get("url") or "").strip()
+    if not url:
+        return {"error": "No URL was given.", "_display": "no url", "_ok": False}
+    # Only add a scheme when there is none at all. Testing for "://" mangled
+    # `data:text/html,...` into `https://data:text/html,...`, whose "port" is
+    # not a number — which raised out of the tool instead of being refused.
+    if not re.match(r"[A-Za-z][A-Za-z0-9+.\-]*:", url):
+        url = "https://" + url
+
+    seen = []
+    deadline = time.monotonic() + WEB_TOTAL_TIMEOUT
+    for _ in range(WEB_MAX_REDIRECTS + 1):
+        if time.monotonic() > deadline:
+            return {"url": url,
+                    "error": "Gave up after %s seconds." % WEB_TOTAL_TIMEOUT,
+                    "_display": "timed out", "_ok": False}
+        blocked = web_block_reason(url)
+        if blocked:
+            return {"error": "Refused to fetch %s because %s." % (url, blocked),
+                    "hint": "Only public http(s) pages can be read.",
+                    "_display": "blocked", "_ok": False}
+        seen.append(url)
+        opener = urllib.request.build_opener(_NoRedirect)
+        request = urllib.request.Request(url, headers={
+            "User-Agent": "Lantern/%s (local chat app; reading a page the user pasted)" % VERSION,
+            "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
+            "Accept-Language": "en",
+            # Ask for no compression. Servers send it anyway, so the body is
+            # decompressed below too — undecoded gzip reached the model as
+            # mojibake and it read that as the page.
+            "Accept-Encoding": "identity",
+        })
+        try:
+            with opener.open(request, timeout=WEB_TIMEOUT) as response:
+                ctype = (response.headers.get("Content-Type") or "").lower()
+                base = ctype.split(";")[0].strip()
+                if base and base not in WEB_TYPES:
+                    return {"url": url,
+                            "error": "That is %s, not a readable page." % base,
+                            "_display": base or "not text", "_ok": False}
+                # read1(), not read(): read(n) blocks until it has all n bytes,
+                # so a server dripping a byte a second never returns and the
+                # deadline below never gets a turn. read1() hands back whatever
+                # has arrived, which keeps the loop — and the clock — alive.
+                reader = getattr(response, "read1", None) or response.read
+                raw = b""
+                while len(raw) <= WEB_MAX_BYTES:
+                    if time.monotonic() > deadline:
+                        return {"url": url,
+                                "error": "The site was still sending after %s "
+                                         "seconds." % WEB_TOTAL_TIMEOUT,
+                                "_display": "timed out", "_ok": False}
+                    chunk = reader(65536)
+                    if not chunk:
+                        break
+                    raw += chunk
+                raw = _web_decompress(raw, (response.headers.get("Content-Encoding")
+                                            or "").lower().strip())
+                final = response.geturl() or url
+        except urllib.error.HTTPError as exc:
+            if exc.code in (301, 302, 303, 307, 308):
+                target = exc.headers.get("Location")
+                if not target:
+                    return {"url": url,
+                            "error": "The site redirected without saying where.",
+                            "_display": "bad redirect", "_ok": False}
+                url = urllib.parse.urljoin(url, target)
+                continue
+            return {"url": url,
+                    "error": "The site returned HTTP %s (%s)." % (exc.code, exc.reason),
+                    "_display": "HTTP %s" % exc.code, "_ok": False}
+        except socket.timeout:
+            return {"url": url,
+                    "error": "The site did not respond within %s seconds." % WEB_TIMEOUT,
+                    "_display": "timed out", "_ok": False}
+        except Exception as exc:
+            # urllib raises a wide family here (URLError wrapping DNS, TLS,
+            # connection-refused, and a socket.timeout that is *not* always the
+            # one caught above). All of them are the same thing to the model.
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, socket.timeout):
+                message = "The site did not respond within %s seconds." % WEB_TIMEOUT
+                display = "timed out"
+            else:
+                message = "Could not reach %s (%s)." % (url, exc.__class__.__name__)
+                display = "unreachable"
+            return {"url": url, "error": message,
+                    "_display": display, "_ok": False}
+
+        oversized = len(raw) > WEB_MAX_BYTES
+        raw = raw[:WEB_MAX_BYTES]
+        charset = "utf-8"
+        if "charset=" in ctype:
+            charset = ctype.split("charset=")[-1].split(";")[0].strip() or "utf-8"
+        try:
+            body = raw.decode(charset, errors="replace")
+        except LookupError:
+            body = raw.decode("utf-8", errors="replace")
+
+        if base == "text/plain" or base == "text/markdown":
+            title, text = "", body.strip()
+        else:
+            parser = _TextExtractor()
+            try:
+                parser.feed(body)
+            except Exception:
+                pass          # malformed markup still yields whatever parsed
+            title, text = " ".join(parser.title.split()), parser.text()
+
+        clipped = len(text) > WEB_MAX_CHARS
+        payload = {
+            "url": final,
+            "title": title[:200],
+            "text": text[:WEB_MAX_CHARS] or "(the page had no readable text)",
+        }
+        if clipped or oversized:
+            payload["truncated"] = True
+            payload["note"] = ("Only the first part of the page is shown. Ask for a "
+                               "more specific page if you need the rest.")
+        if len(seen) > 1:
+            payload["redirected_from"] = seen[0]
+        host = urllib.parse.urlsplit(final).hostname or ""
+        payload["_display"] = "%s · %s chars" % (host, len(payload["text"]))
+        return payload
+
+    return {"error": "Gave up after %s redirects." % WEB_MAX_REDIRECTS,
+            "_display": "too many redirects", "_ok": False}
+
 
 def _tool_current_datetime(args: dict) -> dict:
     """Read this machine's clock. Optionally in another IANA timezone."""
@@ -976,6 +1251,41 @@ TOOLS = {
         },
         "run": _tool_current_datetime,
     },
+    "read_url": {
+        "summary": "Fetches a web page and reads its text.",
+        # Gated: tool_catalog(), tool_specs() and run_tool() all refuse while the
+        # setting is off, so the switch is the only thing that can produce a
+        # request — and the model is never even told the tool exists.
+        "gate": "web_reader",
+        "spec": {
+            "type": "function",
+            "function": {
+                "name": "read_url",
+                "description": (
+                    "Fetch a web page and read its text. Use it when the user "
+                    "gives you a link, or refers to a page they have pasted. Only "
+                    "public http(s) pages can be read: addresses on this machine "
+                    "or a private network are refused. If a fetch fails you are "
+                    "told why — say so plainly rather than inventing the contents."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": (
+                                "The full URL to read, e.g. "
+                                "https://example.com/page. Use a URL the user "
+                                "gave you; do not guess one."
+                            ),
+                        },
+                    },
+                    "required": ["url"],
+                },
+            },
+        },
+        "run": _tool_read_url,
+    },
     "search_chats": {
         "summary": "Searches the text of your saved conversations.",
         "spec": {
@@ -1048,10 +1358,24 @@ TOOLS = {
 }
 
 
+def tool_enabled(tool) -> bool:
+    """
+    A gated tool is invisible until its setting is on.
+
+    Checked in all three of catalog, specs and run: the UI must not list it, the
+    model must not be told it exists, and a direct API call must not reach it.
+    Gating in one place would leave the other two as ways in.
+    """
+    gate = tool.get("gate")
+    return True if not gate else bool(get_settings().get(gate))
+
+
 def tool_catalog() -> list:
     """What the UI needs to describe the tools it can switch on."""
     out = []
     for name, tool in TOOLS.items():
+        if not tool_enabled(tool):
+            continue
         fn = tool["spec"]["function"]
         out.append({
             "name": name,
@@ -1073,6 +1397,8 @@ def tool_specs(names) -> list:
     for name in (names if isinstance(names, list) else []):
         if not isinstance(name, str) or name in seen or name not in TOOLS:
             continue
+        if not tool_enabled(TOOLS[name]):
+            continue
         seen.add(name)
         specs.append(TOOLS[name]["spec"])
         if len(specs) >= 32:
@@ -1090,6 +1416,10 @@ def run_tool(name, arguments) -> dict:
     """
     started = time.time()
     tool = TOOLS.get(name) if isinstance(name, str) else None
+    if tool and not tool_enabled(tool):
+        return {"ok": False, "name": name, "arguments": {},
+                "content": "Error: the %s tool is switched off in Settings." % name,
+                "display": "switched off", "ms": 0}
     if not tool:
         return {"ok": False, "name": str(name)[:80], "arguments": {},
                 "content": f"Error: no tool named {name!r} is available.",
@@ -1112,9 +1442,15 @@ def run_tool(name, arguments) -> dict:
                 "display": "failed", "ms": int((time.time() - started) * 1000)}
 
     display = ""
+    ok = True
     if isinstance(result, dict):
         display = str(result.pop("_display", "") or "")
-    return {"ok": True, "name": name, "arguments": args,
+        # `ok` means "the tool executed", not "the outcome was good" — a
+        # calculate error is a normal result with an `error` key. But a fetch
+        # that timed out or was refused should read as failed in the thread, so
+        # a tool may say so with `_ok`, popped like `_display`.
+        ok = result.pop("_ok", True) is not False
+    return {"ok": ok, "name": name, "arguments": args,
             "content": json.dumps(result, ensure_ascii=False),
             "display": display, "ms": int((time.time() - started) * 1000)}
 

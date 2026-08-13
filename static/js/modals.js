@@ -354,6 +354,17 @@ export function openSettings() {
     'Lets the model call Lantern\'s local tools without switching them on each time. '
     + 'The schemas cost prompt tokens on every turn.',
     toggle(st.tools_default, (v) => patchSettings({ tools_default: v }))));
+  // The tools registry is served by the server, so switching this refreshes it:
+  // with the setting off the model is never told read_url exists.
+  body.append(srow('Let the model read web pages',
+    'Adds a read_url tool that fetches a link and reads its text. Off by default — '
+    + 'it is the only tool that reaches off this machine, and the model chooses the '
+    + 'address. Pages on this machine or your private network are always refused.',
+    toggle(st.web_reader, async (v) => {
+      await patchSettings({ web_reader: v });
+      S.tools = (await api.tools()).tools || [];
+      emit('models');      // the Tools pill and its caret list re-read S.tools
+    })));
 
   body.append(sectionTitle('Performance'));
   const ka = el('select', { class: 'inp', onchange: (e) => patchSettings({ keep_alive: e.target.value }) });

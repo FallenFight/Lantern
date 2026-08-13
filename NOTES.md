@@ -97,9 +97,11 @@ This is stated in the in-app guide. Don't try to "fix" it with detection.
 
 ## Tool calling
 
-Three tools ship: `current_datetime`, `search_chats` and `calculate`. Adding one
+`current_datetime`, `search_chats`, `calculate` and `read_url` ship. Adding one
 is a single entry in `TOOLS` — the loop, the UI and the round cap need no
-changes.
+changes. A tool may carry a `gate` naming a setting, in which case it is invisible
+until that setting is on; `read_url` is the only one so far, and *The URL reader*
+below is why.
 
 **The calculator is the one tool where a mistake is arbitrary code execution**,
 because it evaluates a string the *model* wrote. Three rules hold it:
@@ -465,6 +467,102 @@ against a data folder written by this build** lists every chat, opens a filed on
 with its messages, and *preserves* `folder_id` through its own save, because it
 round-trips the whole chat dict. Degraded, not broken, exactly as promised.
 
+## The URL reader
+
+The second thing that can reach off this machine, and much sharper than the
+update check, because **the model chooses the address**. That makes it a
+server-side request forgery primitive unless it is fenced, and the fence is more
+of the work than the feature.
+
+The concrete danger is not abstract: Lantern's own API and Ollama's both listen
+on localhost. `http://127.0.0.1:8777/api/chats` would put every saved
+conversation into the model's context, and a page the user pasted is exactly the
+sort of thing that could talk a model into fetching it.
+
+So the fence, all of it on the server:
+
+- **http(s) only**, and the check is on the **resolved IP**, not the hostname —
+  `localtest.me` and friends resolve to 127.0.0.1, so a name blocklist waves them
+  straight through. Loopback, private, link-local, multicast, reserved and
+  unspecified are all refused.
+- **Every redirect hop is re-checked.** A public URL redirecting to
+  `169.254.169.254` is stopped at the redirect, verified against a local server
+  that does exactly that.
+- **Bounded everywhere**: a hard request timeout, a capped body read, a redirect
+  limit, and a capped result — a tool result is replayed in the prompt on every
+  later turn, the same reasoning as `search_chats`.
+- **Gated in three places** — `tool_catalog()`, `tool_specs()` and `run_tool()`.
+  The UI must not list it, the model must not be told it exists, and a direct API
+  call must not reach it. Gating in one place leaves the other two as ways in.
+
+**The tool contract was not what it looked like, and only testing found it.**
+A tool's `run()` returns a *plain payload* that `run_tool()` JSON-encodes
+wholesale; `_display` is popped for the row label; and `ok` means "the tool
+executed", not "the outcome was good" — a `calculate` error is a normal result
+with an `error` key. I wrote the first version returning `{"content": ...,
+"ok": False}`, which was double-encoded into the payload and always marked
+successful. Reading `run_tool` would have shown it; the SSRF suite showed it
+instead, on case one. A fetch failure *should* read as failed in the thread, so
+`_ok` now exists alongside `_display` — one line, and the only change to the
+contract.
+
+**Two bugs the hostile suite caught, both in the same place.** Testing for
+`"://"` to decide whether to prepend a scheme mangled `data:text/html,...` into
+`https://data:text/html,...`, whose "port" is not a number — and
+`urllib.parse.SplitResult.port` *raises* on access rather than returning None.
+So the tool raised instead of refusing. `run_tool` caught it, so nothing broke,
+but a tool that raises is a tool whose failure text the model never sees. Match
+a scheme properly, and never touch `.port` bare.
+
+**Verified.** Seventeen hostile inputs — Lantern's own API, Ollama's, localhost
+by name, private LAN, the cloud metadata address, IPv6 loopback, `0.0.0.0`,
+`file:`/`ftp:`/`data:`/`mailto:`/`javascript:`, an invalid port, no host, garbage,
+empty — all refused in under 30ms, none raising, none hanging. Then the fetch
+path against a local server: a normal page extracts title and text with scripts
+and styles stripped, plain text passes through, a 404 and a PDF and an oversized
+page each come back as a readable message, a redirect is followed, a redirect to
+the metadata IP is blocked, a redirect loop stops at the limit, and a host that
+sleeps past the timeout returns "did not respond" at exactly the timeout.
+
+**End to end with a real model**, which is the trigger rather than the mechanism:
+asked to read an unreachable URL, qwen called `read_url`, got `unreachable`, and
+told the user it could not access the page — the turn finished in 13 seconds with
+the tool row styled as failed. Asked to read `http://127.0.0.1:.../api/chats` it
+declined from the tool description alone without even calling it, which is a
+pleasant second layer but not the control; the server block is.
+
+**Two more bugs, found by a robustness pass *after* the first suite passed —
+both of them ways to hang the reply, which is the one thing this must not do:**
+
+- **`timeout=` is per socket operation, not per transfer.** A server dripping one
+  byte a second resets it forever. Reproduced: it ran past 12 seconds against a
+  2-second timeout. There is now a wall-clock `WEB_TOTAL_TIMEOUT` for the whole
+  call, redirects included — which also stops three slow hops stacking to 24s.
+- **`HTTPResponse.read(n)` blocks until it has all n bytes**, so the first
+  attempt at a deadline never got a turn — the check sat in a loop that could not
+  reach it. `read1()` returns whatever has arrived and keeps the clock alive.
+  **A deadline is worthless if the call you are timing cannot yield.**
+
+Also fixed there: undecoded **gzip** reached the model as mojibake and it read
+that as the page, so `Accept-Encoding: identity` is requested *and* the body is
+decompressed anyway (servers send it regardless). Decompression is bounded by
+`max_length` — 200 KB of gzip expands to 200 MB otherwise, in the server process.
+Verified: bomb bounded in 33ms, drip-feed ends at the deadline, and a connection
+cut mid-body still yields the partial text.
+
+**Known limitation, deliberately left: DNS rebinding.** The address is resolved
+to check it, then urllib resolves again to connect, so a hostile name with a
+one-second TTL could answer public for the check and `127.0.0.1` for the fetch.
+Closing it means connecting to the checked IP by hand and carrying the original
+host through TLS SNI and certificate validation — a real amount of socket code
+for a threat that needs an attacker-controlled domain *and* the user pasting it.
+It is written down rather than pretended away; if this ever guards something
+sharper, that is the gap to close first.
+
+**What it is not.** One page you point it at. No search engine, no crawling, no
+following links found on the page. Search is a later conversation, and SearXNG on
+localhost fits this project better than an API key.
+
 ## The 1.0 compatibility promise
 
 1.0 is not "feature complete" — it is **"ready for strangers"**. The thing a
@@ -644,6 +742,9 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] Model picker, persona picker, Think pill, Tools pill — each opens and the
       caret menus work
 - [ ] Tools on: ask the time in another timezone; expand the tool row
+- [ ] **URL reader** (Settings → Behaviour → *Let the model read web pages*):
+      paste a real link and ask about it, then ask it to read a URL that does
+      not resolve. The failure must end the turn with an answer, not a spinner
 - [ ] ⌘K palette, ⌘F find (step with ⏎), ⌘⇧F search all chats
 - [ ] New chat, rename, pin, archive, duplicate, branch, delete
 - [ ] Regenerate, edit-and-resend, delete a message
@@ -788,7 +889,7 @@ Still to do, and none of it is blocking anything:
 
 ## Where things stand
 
-**Shipped: `v1.1.0`, and the repo is public.**
+**Shipped: `v1.2.0`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
@@ -815,6 +916,11 @@ The three patch releases after it, oldest first:
 - **`1.0.3`** — puts the version under the sidebar buttons and adds the opt-in
   update check: the first thing in the app that can reach past your own machine.
   How it is gated is under *The update check* above.
+
+Since then: **`1.1.0`** added folders for chats, and **`1.2.0`** the opt-in
+`read_url` tool — the second thing that can reach off the machine, and the first
+where the *model* picks the address. *The URL reader* above has the fence and the
+two hang-the-reply bugs a robustness pass caught after the first suite passed.
 
 **Still not done, and the biggest gap:** the README has **no screenshots**. For a
 UI project that matters more than any prose in it. Three worth taking: the thread
@@ -974,14 +1080,22 @@ the compare view. Deliberately deferred, not forgotten.
 
 Then, ranked by value, from the feature audit:
 
-1. **RAG / document ingestion** — no PDF, DOCX, chunking, or vector store. Text
-   files are inlined verbatim as code fences.
-2. **Local embeddings** — `/api/embed` is never called.
-3. **Web search** — start with a URL reader: fetch a page, extract readable text,
-   drop it into context. No key, no dependency, and it keeps the app offline
-   until you paste a link. SearXNG on localhost later if you want real querying;
-   it fits this project better than an API key. Both are now tools, so they are
-   one `TOOLS` entry each.
+**Two of these are audit findings, not available work.** They describe real
+gaps, and they are *also* in the rejected table above — which is the table that
+exists so nobody re-proposes something already ruled out. Reading this list for
+"what's next" walked straight into that once. They stay documented because
+knowing your gaps is useful; they are not on the menu.
+
+1. ~~RAG / document ingestion~~ — no PDF, DOCX, chunking, or vector store; text
+   files are inlined verbatim as code fences. **Ruled out**: without a library it
+   means hand-writing chunking and a vector store, which is where the
+   zero-dependency rule stops paying. Reopen the decision before proposing it.
+2. ~~Local embeddings~~ — `/api/embed` is never called. **Ruled out** with RAG,
+   for the same reason; on its own it has nothing to feed.
+3. **Web search** — the URL reader half is **built**; see *The URL reader* above
+   for the fence around it. What remains is actual querying, and SearXNG on
+   localhost still fits this project better than an API key. One `TOOLS` entry
+   when it happens.
 4. ~~Folders or tags for chats~~ — **built.** Folders, not tags; the reasoning
    and the traps are under *Folders* above. Tags are still possible as a separate
    additive field if per-chat labels ever earn their place.

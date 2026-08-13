@@ -520,9 +520,15 @@ function openToolsMenu() {
           el('span', { class: 'mi-sub', text: tool.summary || tool.description }))));
     }
     menu.append(el('div', { class: 'menu-sep' }));
+    // The no-network half of this note stopped being true when read_url landed,
+    // so it is written from what is actually in the list rather than asserted.
+    const reader = S.tools.some((t) => t.name === 'read_url');
     menu.append(el('div', { class: 'menu-note',
-      text: `Tools run on this machine, read-only, with no network access. At most `
-        + `${S.toolRoundLimit} rounds of calls per reply — after that the model has to answer.` }));
+      text: `Tools run on this machine, in the server process, read-only — no shell, `
+        + `no file writes. ${reader
+          ? 'read_url is the one exception: it fetches public web pages, never addresses on this machine or your network. '
+          : 'None of them reach the network. '}`
+        + `At most ${S.toolRoundLimit} rounds of calls per reply — after that the model has to answer.` }));
   });
 }
 
