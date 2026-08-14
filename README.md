@@ -275,7 +275,7 @@ tools/make_icon.py   macOS: renders the icon procedurally
 tools/lint.py        checks the code and docs against past mistakes
 tools/hooks/         git hooks: git config core.hooksPath tools/hooks
 NOTES.md             design decisions and reasoning
-CLAUDE.md            standing constraints for coding assistants
+CONTRIBUTING.md      standing constraints and working notes
 data/                created on first run, unless a launcher points elsewhere
 ```
 

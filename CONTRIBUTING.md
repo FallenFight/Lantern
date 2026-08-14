@@ -1,4 +1,7 @@
-# Lantern — working notes for Claude
+# Contributing to Lantern
+
+Standing constraints and working notes for anyone changing this project,
+including future-you.
 
 A local chat interface for Ollama: Python 3 stdlib server, vanilla ES modules, no
 build step. **`NOTES.md` holds the reasoning, the rejected approaches, and the
@@ -13,7 +16,7 @@ traps that cost real time — read it before changing anything structural.**
   `/usr/bin/python3` that ships with macOS. No `match`, no `X | Y` at runtime.
 - **Local-first, which is about inference and data — not about never opening a
   socket.** Conversations, models and files stay on the machine. That is the
-  promise; "makes no network call" is not, and stopped being true in 1.3.0.
+  promise; "makes no network call" is not, and stopped being true in 1.2.2.
 
   Two outbound paths exist, both gated **on the server** so the switch is the
   only thing that can produce a request:
@@ -106,7 +109,7 @@ resolve, and that no source file is missing from the Layout block.
 Then the click-through list in `NOTES.md` → **Before you ship**. It is two
 minutes and it catches the class of bug that reading code does not.
 
-## Picking up where the last session left off
+## Picking the project back up
 
 `NOTES.md` → **Where things stand** has the current version, what shipped, and
 the next release with its design already worked out. `NOTES.md` → **Still open**

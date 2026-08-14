@@ -83,7 +83,7 @@ def check_js(root: Path) -> list:
 # README has shipped wrong six times: a stale model name, a claim that Lantern
 # never sent tools that survived a whole release, the line count three times, and
 # an accent count that said nine when there had been twelve for months. A prose
-# rule in CLAUDE.md did not stop any of it, because a prose rule only works if
+# rule in CONTRIBUTING.md did not stop any of it, because a prose rule only works
 # someone chooses to look. These fail loudly instead.
 #
 # The pattern is *countable things* — "N of X" in prose, with the real N in the
@@ -205,7 +205,7 @@ def check_docs(root: Path) -> list:
     for pattern, why in banned:
         for hit in re.finditer(pattern, readme, re.I):
             problems.append(f"README.md: \"{hit.group(0).strip()}\" {why}. "
-                            f"See 'countable things' in CLAUDE.md")
+                            f"See 'countable things' in CONTRIBUTING.md")
 
     # 4. Every internal doc link must resolve. Two docs were deleted this
     #    session and nothing but a manual grep checked for danglers.

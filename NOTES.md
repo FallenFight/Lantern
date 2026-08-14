@@ -373,7 +373,7 @@ first, repaints, then persists. Use it for anything that changes appearance.
 ## The update check — the one call that leaves the machine
 
 Added in 1.0.3. **Off by default**, because "offline unless you say otherwise" is
-a promise in `CLAUDE.md` and in the README, and this is the only thing in the app
+a promise in `CONTRIBUTING.md` and in the README, and this is the only thing in the app
 that can break it. It was raised before it was built rather than after.
 
 Why it exists at all: distribution is source-only, so there is no Sparkle-style
@@ -940,7 +940,7 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] **Check `lantern.log` is empty.** A shipped app writing tracebacks looks
       broken even when it is fine — that is how the disconnect noise was found
 - [ ] **Docs pass.** Does `README.md` still describe what the app does? Does this
-      file have the new traps? Is anything in `CLAUDE.md` now untrue? Every
+      file have the new traps? Is anything in `CONTRIBUTING.md` now untrue? Every
       feature or major change owns its documentation — README has shipped wrong
       **six** times: a stale model name, a claim that Lantern never sent tools
       which survived a whole release, the line count **three** times, and an
