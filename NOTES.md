@@ -18,7 +18,7 @@ manual and is kept accurate against the code.
 
 ## Where things stand
 
-**Shipped: `v1.2.4`, and the repo is public.**
+**Shipped: `v1.2.5`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`,
@@ -46,6 +46,10 @@ The three patch releases after it, oldest first:
 - **`1.0.3`** — puts the version under the sidebar buttons and adds the opt-in
   update check: the first thing in the app that can reach past your own machine.
   How it is gated is under *The update check* above.
+
+**`1.2.5`** is the fun pass: option chips a model can offer as buttons, a Game
+Master persona with a `roll_dice` tool, `{{placeholders}}` in saved prompts, and
+a Continue action for replies that run out of room.
 
 **`1.2.4`** is a UI pass: three themes (Ember, Void, Sepia), the light-theme
 override fix that Mist had been shipping without, an appearance step in first
