@@ -48,7 +48,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 
 # The update check. Unauthenticated and read-only; GitHub allows 60 requests an
 # hour per IP, which one check per launch cannot come near.
