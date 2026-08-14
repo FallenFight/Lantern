@@ -187,9 +187,8 @@ So: before a build or a release, actually click these. Two minutes.
       model you pick is the one the open chat uses, and it does *not* appear
       again on reload. Then point at a folder with chats and confirm it stays
       away — greeting an existing user is the failure that matters
-- [ ] **Game Master persona** with tools on: ask it to roll for something.
-      The dice row must show the roll, the narration must match it, and the
-      choices must render as clickable chips that *fill* the composer
+- [ ] Tools on: ask a model to roll dice. The row must show every die, and the
+      reply must not state a number the tool did not return
 - [ ] A saved prompt with `{{blanks}}` asks for them; one without goes
       straight into the composer as it always did
 - [ ] **Continue**: set `num_predict` low enough to truncate a reply, press

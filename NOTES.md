@@ -18,7 +18,7 @@ manual and is kept accurate against the code.
 
 ## Where things stand
 
-**Shipped: `v1.2.6`, and the repo is public.**
+**Shipped: `v1.2.7`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`,
@@ -46,6 +46,9 @@ The three patch releases after it, oldest first:
 - **`1.0.3`** — puts the version under the sidebar buttons and adds the opt-in
   update check: the first thing in the app that can reach past your own machine.
   How it is gated is under *The update check* above.
+
+**`1.2.7`** withdraws the Game Master seed. The chips and `roll_dice` stay; the
+persona depended on behaviour smaller local models do not have.
 
 **`1.2.6`** makes seeded personas and prompts reach existing installs — Game
 Master shipped in 1.2.5 and appeared for nobody who already used Lantern.
@@ -138,4 +141,5 @@ knowing your gaps is useful; they are not on the menu.
 | **Parallel** multi-model comparison (the Msty / Open WebUI approach) | Not implementable on the target hardware. Measured: `qwen3.5-9b` is 7.29 GB resident at the 32k default, so two loaded models is ~14.6 GB on a 16 GB M4 — under 1.5 GB left for macOS and the app. Ollama would evict one mid-generation or the machine would swap. Comparison runs **sequentially** instead, which is a better fit, not a compromise |
 | MLX / Vulkan backends | Ollama's domain, not ours |
 | README screenshots | Owner's call: not happening for the foreseeable future. They would help a UI project on a public repo, and that argument has been made and declined. **Don't raise it again** — the rejected table is where things go so nobody re-proposes them |
+| A seeded roleplay persona | Shipped as Game Master in 1.2.5, withdrawn in 1.2.7. It depends on the model ending every turn with an `options` block, which smaller local models do not do reliably — so the seed set an expectation the app could not keep. The chips and `roll_dice` remain; anyone wanting the behaviour can write the instruction into a persona of their own |
 | Browser `--app` window | Was the original approach. Replaced by the native host; it cost a 112 MB Brave profile for a cosmetic window |

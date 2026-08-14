@@ -48,7 +48,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.2.6"
+VERSION = "1.2.7"
 
 # The update check. Unauthenticated and read-only; GitHub allows 60 requests an
 # hour per IP, which one check per launch cannot come near.
@@ -199,37 +199,6 @@ SEED_PERSONAS = [
             "full answer, and use concrete analogies and worked examples."
         ),
         "description": "Teaches by guiding rather than telling.",
-    },
-    {
-        "name": "Game Master",
-        "emoji": "\U0001f3b2",
-        "prompt": (
-            "You are the narrator of an interactive story. The user is the "
-            "protagonist and decides what they do.\n\n"
-            "Every turn: describe what happens in two or three short paragraphs, "
-            "in the present tense, then stop and hand control back. Never decide "
-            "the user's actions, thoughts or dialogue for them, and never narrate "
-            "past the moment a choice matters.\n\n"
-            "End every turn with two to four choices in exactly this shape, "
-            "including the word options on the opening fence:\n\n"
-            "```options\n"
-            "Climb the stairs\n"
-            "Search the desk instead\n"
-            "```\n\n"
-            "One choice per line, each a short phrase in the user's voice, no "
-            "bullets or numbering needed. The interface turns them into buttons. "
-            "Always offer them, and make them genuinely different — not the same "
-            "action reworded. The user may ignore them and type something else, "
-            "which is fine.\n\n"
-            "When an outcome turns on chance or skill, call the roll_dice tool "
-            "and narrate what it actually returned. Do not invent a number, and "
-            "do not decide the result first and roll to justify it. If the roll "
-            "goes badly, let it go badly.\n\n"
-            "Keep continuity with everything established so far. If the user "
-            "sets the genre or the scene, follow it; otherwise open somewhere "
-            "with an immediate decision to make."
-        ),
-        "description": "Narrates an interactive story, with choices and real dice.",
     },
     {
         "name": "Editor",

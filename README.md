@@ -127,11 +127,12 @@ written from scratch, so nothing is fetched from a CDN.
 **Interactive choices.** A model can offer clickable options by ending a reply
 with a fenced block tagged `options`, one per line. They render as buttons that
 fill the composer — clicking never sends on its own, so the model can't put words
-in your mouth and press return.
+in your mouth and press return. Whether a model uses it at all depends on the
+model; smaller ones mostly won't, and a reply that ignores it is just a reply.
 
 **Personas and prompts.** Personas are named system prompts, each able to pin its
 own model, thinking setting, and sampling overrides. Default, Terse, Engineer,
-Socratic Tutor, Game Master, and Editor ship, all editable — Default is the blank one, with no
+Socratic Tutor, and Editor ship, all editable — Default is the blank one, with no
 system prompt, so every chat has a persona and you can fill it in rather than
 choosing between nothing and something. Saved prompts are the things you retype,
 inserted from the command palette. A saved prompt can hold `{{placeholders}}`:

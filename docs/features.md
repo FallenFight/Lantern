@@ -230,40 +230,38 @@ whether the file is empty. Absent from that list means "never offered", not
 
 Verified against a copy of a real `personas.json`: Game Master is added exactly
 once, a second read does not duplicate it, and deleting it then restarting leaves
-it gone.
+it gone. (That persona was itself withdrawn in 1.2.7 — see *Roleplay* below —
+but it is what the fix was tested with.)
 
 **The general shape is worth remembering.** Any "seed on first run" is really
 "seed the things this install has never been offered", and the difference only
 shows up on the release *after* you add one — which is the worst time to find
 out.
 
-## Roleplay, as a persona rather than a mode
+## Roleplay: tried, and the seed withdrawn
 
-The Game Master persona narrates, hands control back every turn, and ends with
-choices in an `options` block. It is a **persona, not a mode**, and that is the
-design: a mode is a permanent fork in the app, while a persona is a system prompt
-you can read, edit and delete, and it already pins model, thinking and sampling.
+A Game Master persona shipped in 1.2.5 and was removed in 1.2.7 after actually
+being used. It narrated well enough, but the feature it leaned on — a model
+ending every turn with an `options` block — is **not something smaller local
+models do reliably**. Seeding a persona that only works on the larger ones sets
+an expectation the app cannot keep, and a half-working example in everybody's
+persona list is worse than no example.
 
-`roll_dice` makes the outcomes real. It returns **every individual die**, not
-just the total, so a player can see the model did not invent the result — the
-same reasoning as rendering a `calculate` call with its exact arguments. Bounded
-at 100 dice of up to 1000 sides, so `99999d99999` is a refusal rather than a
-hang, and `secrets.randbelow` rather than `random` because there is no reason to
-use a seeded PRNG here.
+What that leaves, deliberately:
 
-Verified end to end: asked to roll on arrival, qwen called `roll_dice`, got
-`1d20+5 = 18`, narrated that result, and offered four chips.
+- **Option chips stay.** They cost nothing when unused: a model that ignores the
+  convention just writes prose, and no affordance appears. Anyone who wants the
+  behaviour can write the instruction into their own persona, which is exactly
+  what the removed seed was.
+- **`roll_dice` stays.** It is useful outside roleplay — picking at random,
+  settling a coin toss — and it is the only tool whose result cannot be faked
+  convincingly, since it returns every die.
 
-## Prompt templates
-
-A saved prompt can contain `{{placeholders}}`. Inserting one opens a field per
-unique placeholder, in order; an unanswered slot is **left visible** rather than
-silently emptied, so a half-filled template is obvious in the composer instead of
-producing a sentence with a hole in it.
-
-A prompt with no placeholders takes exactly the path it always did, so nothing in
-the existing library changes until someone writes a `{{...}}` into one. Verified
-both directions from the palette.
+**The lesson is about seeding, not about roleplay.** A seeded persona is a
+promise that something works out of the box. Ship one that depends on behaviour
+only some models have, and the app looks broken to everyone else. Features that
+degrade quietly, like the chips themselves, are safe to ship; examples that
+depend on them are not.
 
 ## Folders
 
