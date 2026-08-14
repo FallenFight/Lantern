@@ -295,11 +295,34 @@ Menus, modals, palette and toasts use `--panel` (97-98% opaque), not
 `--glass-deep`. Blur alone did not make them readable over a busy thread, and
 raising opacity let the blur drop from 28-34px to 14px, which is cheaper.
 
-Still to do, and none of it is blocking anything:
+All three of the remaining polish items landed in 1.2.4: the wash is bolder near
+the top, the send button took the lens treatment, and the light themes were fixed
+properly — see below.
 
-- The wash is weaker than the reference; it wants to be bolder near the top.
-- The composer could take the same lens treatment on its send button.
-- Light theme has had far less attention than dark on all of the above.
+**A light theme is more than a palette, and Mist proved it.** The syntax colours,
+the lens, the modal overlay and a couple of tag colours all have to flip, and
+those overrides were keyed on `[data-theme="light"]`. So Paper got them and
+**Mist — the other light theme — silently inherited dark syntax highlighting on a
+near-white background**. Measured rather than guessed: its keyword colour was
+`rgb(192,132,252)`, a pale lavender meant for a dark surface, against Paper's
+`rgb(124,58,237)`.
+
+`applyTheme()` now sets `data-light` from `isDarkTheme()`, and the fourteen
+overrides are keyed on that. Mist is fixed, and every future light theme is
+correct by construction rather than by remembering. That mattered immediately:
+Sepia was added in the same pass and needed nothing.
+
+**Three themes joined in 1.2.4** — Ember (warm dark), Void (true black, so an
+OLED panel actually switches pixels off), and Sepia (warm light). Each sets only
+the surface palette, never `--accent`, which is what keeps every accent working
+on every theme.
+
+**The interface copy counts things too.** Settings described the palette as "Four
+dark, two light" while there were six and three. `tools/lint.py` now bans palette
+counts in `modals.js` as well as the README — scoped to the palette nouns, because
+applying the README's full list flagged "comparing two prompts" in the seed help
+text, which is prose about a workflow rather than a count. A check that cries
+wolf gets ignored.
 
 ## `writingsuggestions="off"` on the composer
 

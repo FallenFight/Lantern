@@ -211,6 +211,63 @@
 /* both light themes keep the wash restrained */
 [data-theme="mist"] .app::before { opacity: .34; }
 
+/* Ember — warm dark, for people who find blue-black cold. */
+[data-theme="ember"] {
+  --bg:#141010; --bg-2:#1c1615; --bg-3:#251d1b; --bg-hover:#2f2523; --bg-active:#3b2e2b;
+  --surface:#1a1413; --line:#302523; --line-soft:#241b1a;
+  --fg:#f4ebe6; --fg-2:#b8a49c; --fg-3:#8a746b; --code-bg:#0f0b0b;
+  --glow:#f0a868;
+  --user-bg: color-mix(in srgb, var(--accent) 16%, #2a201e);
+  --user-line: color-mix(in srgb, var(--accent) 30%, transparent);
+  --glass: color-mix(in srgb, var(--bg-2) 72%, transparent);
+  --glass-deep: color-mix(in srgb, var(--surface) 82%, transparent);
+  --panel: color-mix(in srgb, var(--surface) 97%, transparent);
+  --glass-line: rgba(255,205,170,.10);
+  --sheen: inset 0 1px 0 rgba(255,210,175,.07);
+  --shadow: 0 18px 50px -14px rgba(0,0,0,.8), 0 3px 10px rgba(0,0,0,.5);
+  --shadow-sm: 0 3px 12px -3px rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+
+/* Void — true black, so an OLED panel actually switches pixels off. */
+[data-theme="void"] {
+  --bg:#000000; --bg-2:#0a0a0c; --bg-3:#121215; --bg-hover:#1a1a1f; --bg-active:#24242b;
+  --surface:#070709; --line:#1e1e24; --line-soft:#141418;
+  --fg:#f0f0f4; --fg-2:#9c9ca8; --fg-3:#66666f; --code-bg:#000000;
+  --glow:#7dd3fc;
+  --user-bg: color-mix(in srgb, var(--accent) 18%, #101016);
+  --user-line: color-mix(in srgb, var(--accent) 34%, transparent);
+  --glass: color-mix(in srgb, var(--bg-2) 78%, transparent);
+  --glass-deep: color-mix(in srgb, var(--surface) 88%, transparent);
+  --panel: color-mix(in srgb, var(--surface) 98%, transparent);
+  --glass-line: rgba(190,200,220,.09);
+  --sheen: inset 0 1px 0 rgba(200,210,230,.06);
+  --shadow: 0 18px 50px -14px rgba(0,0,0,.95), 0 3px 10px rgba(0,0,0,.7);
+  --shadow-sm: 0 3px 12px -3px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+/* The wash is the one thing that would light those pixels back up. */
+[data-theme="void"] .app::before { opacity: .5; }
+
+/* Sepia — warm light, easier than white under a lamp. */
+[data-theme="sepia"] {
+  --bg:#f7f2e8; --bg-2:#f1eade; --bg-3:#e9e0d1; --bg-hover:#e2d7c5; --bg-active:#d7c9b3;
+  --surface:#fdf9f1; --line:#e0d5c2; --line-soft:#ece4d6;
+  --fg:#2a2318; --fg-2:#655a48; --fg-3:#918471; --code-bg:#f2ece0;
+  --glow:#c08a4a;
+  --user-bg: color-mix(in srgb, var(--accent) 12%, #ece3d4);
+  --user-line: color-mix(in srgb, var(--accent) 24%, transparent);
+  --glass: color-mix(in srgb, var(--bg-2) 76%, transparent);
+  --glass-deep: color-mix(in srgb, #fdf9f1 86%, transparent);
+  --panel: color-mix(in srgb, #fdf9f1 98%, transparent);
+  --glass-line: rgba(255,250,240,.72);
+  --sheen: inset 0 1px 0 rgba(255,252,245,.85);
+  --shadow: 0 18px 44px -16px rgba(60,48,30,.22), 0 3px 10px rgba(60,48,30,.07);
+  --shadow-sm: 0 2px 8px -2px rgba(60,48,30,.13);
+  color-scheme: light;
+}
+[data-theme="sepia"] .app::before { opacity: .3; }
+
 /* accents keep working on every theme: they only set --accent, never the
    surface palette, so they layer on top of whichever theme is active */
 [data-accent="neon"]   { --accent: #fcee0a; --accent-fg: #10100a; }
@@ -262,11 +319,12 @@ button { cursor: pointer; background: none; border: 0; }
 .app::before {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
   background:
-    radial-gradient(135% 72% at 8% -18%,
-      color-mix(in srgb, var(--accent) 92%, transparent) 0%,
-      color-mix(in srgb, var(--accent) 52%, transparent) 22%,
-      color-mix(in srgb, var(--accent) 18%, transparent) 45%,
-      transparent 72%),
+    radial-gradient(140% 78% at 8% -20%,
+      color-mix(in srgb, var(--accent) 100%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 68%, transparent) 20%,
+      color-mix(in srgb, var(--accent) 30%, transparent) 42%,
+      color-mix(in srgb, var(--accent) 10%, transparent) 60%,
+      transparent 78%),
     radial-gradient(105% 55% at 96% -12%,
       color-mix(in srgb, var(--glow) 42%, transparent) 0%,
       color-mix(in srgb, var(--glow) 12%, transparent) 30%,
@@ -275,7 +333,7 @@ button { cursor: pointer; background: none; border: 0; }
       color-mix(in srgb, var(--accent) 16%, transparent) 0%,
       transparent 64%);
 }
-[data-theme="light"] .app::before { opacity: .38; }
+[data-light] .app::before { opacity: .38; }
 
 .sidebar {
   position: relative; z-index: 2;
@@ -393,7 +451,7 @@ button { cursor: pointer; background: none; border: 0; }
   transition: transform .42s var(--spring), height .42s var(--spring);
   will-change: transform;
 }
-[data-theme="light"] .lens {
+[data-light] .lens {
   background: color-mix(in srgb, #fff 62%, transparent);
   backdrop-filter: blur(16px) saturate(180%) brightness(1.06);
   -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(1.06);
@@ -638,8 +696,8 @@ button { cursor: pointer; background: none; border: 0; }
 .tag.think { background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 78%, var(--fg)); }
 .tag.vision { background: color-mix(in srgb, #14b8a6 18%, transparent); color: #2dd4bf; }
 .tag.tools { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #fbbf24; }
-[data-theme="light"] .tag.vision { color: #0d9488; }
-[data-theme="light"] .tag.tools { color: #b45309; }
+[data-light] .tag.vision { color: #0d9488; }
+[data-light] .tag.tools { color: #b45309; }
 
 /* banner */
 .banner {
@@ -775,14 +833,14 @@ button { cursor: pointer; background: none; border: 0; }
 .tk-typ { color: #2dd4bf; }
 .tk-op  { color: #f472b6; }
 .tk-attr{ color: #fdba74; }
-[data-theme="light"] .tk-com { color: #8d8799; }
-[data-theme="light"] .tk-str { color: #15803d; }
-[data-theme="light"] .tk-num { color: #b45309; }
-[data-theme="light"] .tk-kw  { color: #7c3aed; }
-[data-theme="light"] .tk-fn  { color: #1d4ed8; }
-[data-theme="light"] .tk-typ { color: #0f766e; }
-[data-theme="light"] .tk-op  { color: #be185d; }
-[data-theme="light"] .tk-attr{ color: #c2410c; }
+[data-light] .tk-com { color: #8d8799; }
+[data-light] .tk-str { color: #15803d; }
+[data-light] .tk-num { color: #b45309; }
+[data-light] .tk-kw  { color: #7c3aed; }
+[data-light] .tk-fn  { color: #1d4ed8; }
+[data-light] .tk-typ { color: #0f766e; }
+[data-light] .tk-op  { color: #be185d; }
+[data-light] .tk-attr{ color: #c2410c; }
 
 /* thinking block */
 .think-box {
@@ -965,7 +1023,7 @@ button { cursor: pointer; background: none; border: 0; }
   border: 1px solid color-mix(in srgb, #f43f5e 26%, transparent);
   color: #fca5a5; font-size: .86rem;
 }
-[data-theme="light"] .msg-err { color: #be123c; }
+[data-light] .msg-err { color: #be123c; }
 
 .dots { display: inline-flex; gap: 4px; align-items: center; padding: 6px 0; }
 .dots i {
@@ -1126,6 +1184,26 @@ button { cursor: pointer; background: none; border: 0; }
   box-shadow: 0 4px 14px -2px color-mix(in srgb, var(--accent) 62%, transparent), var(--sheen);
 }
 .btn-send:active, .btn-stop:active { transform: scale(.93); }
+/* The lens treatment the sidebar rows get: one refractive surface with paired
+   chromatic edges. It is a single composited element on a control that is always
+   on screen, so it costs a layer and nothing per frame. */
+.btn-send:not([disabled]) {
+  position: relative; overflow: hidden;
+  box-shadow:
+    var(--sheen),
+    -3px 0 12px -8px color-mix(in srgb, #3aa0ff 70%, transparent),
+     3px 0 12px -8px color-mix(in srgb, #ff5fc8 60%, transparent),
+    var(--shadow-sm);
+}
+.btn-send:not([disabled])::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(150deg,
+    color-mix(in srgb, #fff 26%, transparent) 0%,
+    transparent 42%,
+    color-mix(in srgb, #fff 9%, transparent) 100%);
+  opacity: .85; transition: opacity .2s;
+}
+.btn-send:not([disabled]):hover::after { opacity: 1; }
 .btn-send[disabled] {
   background: var(--bg-3); color: var(--fg-3); opacity: 1; box-shadow: none;
 }
@@ -1166,7 +1244,7 @@ button { cursor: pointer; background: none; border: 0; }
   background: rgba(0,0,0,.46); backdrop-filter: blur(4px);
   animation: fade .18s;
 }
-[data-theme="light"] .overlay { background: rgba(26,23,32,.28); }
+[data-light] .overlay { background: rgba(26,23,32,.28); }
 @keyframes fade { from { opacity: 0; } }
 
 .modal {
@@ -1602,3 +1680,31 @@ mark.find-hit.on {
   color: var(--fg); font-size: .875rem; line-height: 1.75;
 }
 .reset-list li::marker { color: #f8717a; }
+
+/* first-run appearance step */
+.ob-sub {
+  font-size: .78rem; font-weight: 600; color: var(--fg-3);
+  letter-spacing: .04em; text-transform: uppercase; margin: 16px 0 8px;
+}
+.ob-themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.ob-theme {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-2); font-size: .8rem; text-align: left;
+  transition: border-color .15s, background .15s;
+}
+.ob-theme:hover { background: var(--bg-hover); }
+.ob-theme.on { border-color: var(--accent); background: var(--accent-soft); }
+.ob-swatch {
+  width: 16px; height: 16px; border-radius: 5px; flex: none;
+  border: 1px solid var(--glass-line);
+}
+.ob-theme-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ob-accents { display: flex; flex-wrap: wrap; gap: 8px; }
+.ob-accent {
+  width: 26px; height: 26px; border-radius: 50%; flex: none;
+  border: 2px solid transparent; background: var(--accent);
+  transition: transform .15s, border-color .15s;
+}
+.ob-accent:hover { transform: scale(1.12); }
+.ob-accent.on { border-color: var(--fg); transform: scale(1.12); }

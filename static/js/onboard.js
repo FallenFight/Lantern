@@ -11,11 +11,13 @@
 import { S, emit, patchSettings, refreshModels, queueSaveChat } from './store.js';
 import { api } from './api.js';
 import { $, el, svg, ICON, shortModel } from './util.js';
+import { applyVisual } from './modals.js';
+import { THEMES, ACCENTS } from './theme.js';
 
 let step = 0;
 let picked = null;
 
-const STEPS = [stepWelcome, stepModel, stepPermissions];
+const STEPS = [stepWelcome, stepModel, stepLook, stepPermissions];
 
 export function onboardingNeeded() {
   return !!S.firstRun;
@@ -164,7 +166,59 @@ function stepModel() {
   return wrap;
 }
 
-/* ── step 3: what it may do ─────────────────────────────────────── */
+/* ── step 3: how it looks ───────────────────────────────────────── */
+
+/**
+ * Theme and accent, on the way in.
+ *
+ * Uses applyVisual() rather than patchSettings(), so the choice repaints
+ * immediately — patchSettings awaits the server and a repaint straight after it
+ * paints the previous value. That bug cost a release once.
+ */
+function stepLook() {
+  const st = S.settings || {};
+  const wrap = el('div', { class: 'ob-step' });
+  wrap.append(
+    el('h3', { text: 'Make it yours' }),
+    el('p', { class: 'ob-lead', text:
+      'Pick a look. Every accent works on every theme, and you can change both '
+      + 'any time in Settings.' }),
+  );
+
+  const themes = el('div', { class: 'ob-themes' });
+  const paintThemes = () => {
+    themes.textContent = '';
+    for (const t of THEMES) {
+      themes.append(el('button', {
+        class: `ob-theme${(S.settings?.theme || 'dark') === t.id ? ' on' : ''}`,
+        title: t.label,
+        onclick: () => { applyVisual({ theme: t.id }); paintThemes(); },
+      },
+        el('span', { class: 'ob-swatch', style: `background:${t.swatch}` }),
+        el('span', { class: 'ob-theme-name', text: t.label })));
+    }
+  };
+  paintThemes();
+  wrap.append(themes);
+
+  const accents = el('div', { class: 'ob-accents' });
+  const paintAccents = () => {
+    accents.textContent = '';
+    for (const name of ACCENTS) {
+      accents.append(el('button', {
+        class: `ob-accent${(S.settings?.accent || 'indigo') === name ? ' on' : ''}`,
+        title: name,
+        dataset: { accent: name },
+        onclick: () => { applyVisual({ accent: name }); paintAccents(); },
+      }));
+    }
+  };
+  paintAccents();
+  wrap.append(el('div', { class: 'ob-sub', text: 'Accent' }), accents);
+  return wrap;
+}
+
+/* ── step 4: what it may do ─────────────────────────────────────── */
 
 function permRow(title, sub, key, value) {
   const input = el('input', { type: 'checkbox' });

@@ -11,8 +11,11 @@ export const THEMES = [
   { id: 'midnight', label: 'Midnight', dark: true,  swatch: '#080b14' },
   { id: 'cyber',    label: 'Cyber',    dark: true,  swatch: '#07070a' },
   { id: 'carbon',   label: 'Carbon',   dark: true,  swatch: '#0d0d0d' },
+  { id: 'ember',    label: 'Ember',    dark: true,  swatch: '#141010' },
+  { id: 'void',     label: 'Void',     dark: true,  swatch: '#000000' },
   { id: 'light',    label: 'Paper',    dark: false, swatch: '#fdfcfb' },
   { id: 'mist',     label: 'Mist',     dark: false, swatch: '#f7f9fc' },
+  { id: 'sepia',    label: 'Sepia',    dark: false, swatch: '#f7f2e8' },
 ];
 export const isDarkTheme = (id) => THEMES.find((t) => t.id === id)?.dark ?? true;
 
@@ -27,7 +30,15 @@ export function resolvedTheme() {
 export function applyTheme() {
   const root = document.documentElement;
   const settings = S.settings || {};
-  root.dataset.theme = resolvedTheme();
+  const theme = resolvedTheme();
+  root.dataset.theme = theme;
+  // Light themes need more than a palette: syntax colours, the lens, the modal
+  // overlay and a few tag colours all have to flip. Those used to be keyed on
+  // [data-theme="light"], so Mist — the *other* light theme — silently inherited
+  // dark syntax highlighting on a near-white background. Keyed on lightness now,
+  // so any light theme gets them.
+  if (isDarkTheme(theme)) delete root.dataset.light;
+  else root.dataset.light = 'true';
   root.dataset.accent = ACCENTS.includes(settings.accent) ? settings.accent : 'indigo';
   root.dataset.density = settings.density === 'compact' ? 'compact' : 'comfortable';
   root.dataset.width = settings.bubble_width || 'normal';

@@ -207,6 +207,21 @@ def check_docs(root: Path) -> list:
             problems.append(f"README.md: \"{hit.group(0).strip()}\" {why}. "
                             f"See 'countable things' in CONTRIBUTING.md")
 
+    # The interface says these things too, and its copy goes stale the same way:
+    # Settings called the palette "Four dark, two light" while there were six and
+    # three. Scoped to the palette nouns rather than the README's full list —
+    # applying all of them flagged "comparing two prompts" in the seed help,
+    # which is prose about a workflow, not a count. A check that cries wolf gets
+    # ignored, which is worse than no check.
+    settings_ui = root / "static" / "js" / "modals.js"
+    if settings_ui.is_file():
+        text = settings_ui.read_text(encoding="utf-8")
+        for hit in re.finditer(rf"\b(?:{counted})\s+(accents?|themes?|dark|light)\b",
+                               text, re.I):
+            problems.append(f"modals.js: \"{hit.group(0).strip()}\" counts part of "
+                            f"the palette in interface copy, which goes stale. "
+                            f"Describe it instead")
+
     # 4. Every internal doc link must resolve. Two docs were deleted this
     #    session and nothing but a manual grep checked for danglers.
     for path in sorted(root.glob("*.md")):

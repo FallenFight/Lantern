@@ -134,9 +134,11 @@ Temperature, top-p, top-k, min-p, repeat penalty, context window, prediction
 limit, seed, and stop sequences, set globally, per persona, or per chat. A
 built-in guide explains what each value does.
 
-**Appearance.** Dark themes (Lantern, Midnight, Cyber, Carbon), light themes
-(Paper, Mist), or follow the system. Adjustable accent, text size, message width,
-and density.
+**Appearance.** Dark themes (Lantern, Midnight, Cyber, Carbon, Ember, Void),
+light themes (Paper, Mist, Sepia), or follow the system. Void is true black for
+OLED panels; Ember is warm; Sepia is easier than white under a lamp. Every accent
+works on every theme, and text size, message width and density are adjustable.
+The first-run flow asks for a theme and accent up front.
 
 **Export and reset.** Any chat as Markdown or JSON, or everything at once as a
 single backup file. Restore offers merge, which never overwrites an existing

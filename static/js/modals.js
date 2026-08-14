@@ -309,7 +309,7 @@ export function openSettings() {
       el('span', { text: t.label })));
   }
   paint();
-  body.append(srow('Theme', 'Four dark, two light, or follow the system.', themeGrid));
+  body.append(srow('Theme', 'Pick a surface. Every accent works on all of them.', themeGrid));
 
   const swatches = el('div', { class: 'swatches' });
   for (const name of ACCENTS) {
