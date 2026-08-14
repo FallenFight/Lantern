@@ -1149,6 +1149,10 @@ function setupCommands() {
     { title: 'Manage models', keywords: 'pull download delete ollama', keys: `${MOD}M`, run: openModels },
     { title: 'Parameters & system prompt', keywords: 'temperature top_p seed context', run: openParams },
     { title: 'Settings', keywords: 'preferences options config', keys: `${MOD},`, run: openSettings },
+    // The first-run flow only appears on an empty data folder, so without this
+    // there is no way to see it again short of deleting your own chats.
+    { title: 'Run setup again', keywords: 'onboarding first run welcome setup wizard',
+      run: startOnboarding },
     { title: 'Back up everything', keywords: 'backup export all save archive json', run: backupAll },
     { title: 'Restore from a backup', keywords: 'restore import load backup', run: restoreAll },
     { title: 'Archive this chat', keywords: 'hide archive', when: () => S.chat && !S.chat.archived, run: async () => {
