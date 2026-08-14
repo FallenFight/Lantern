@@ -467,6 +467,31 @@ against a data folder written by this build** lists every chat, opens a filed on
 with its messages, and *preserves* `folder_id` through its own save, because it
 round-trips the whole chat dict. Degraded, not broken, exactly as promised.
 
+## Full reset
+
+The most destructive thing in the app, in a project whose data folder has lost
+chats twice. Three guards, and the ordering matters:
+
+1. **The word is checked on the server.** The dialog asks the user to type
+   `reset`, but `POST /api/reset` refuses without `{"confirm": "reset"}` in the
+   body — so the dialog is a courtesy and the server is the actual lock. A stray
+   or replayed POST cannot wipe a folder.
+2. **It says what it will delete, counted, before it will run** — chats,
+   folders, personas, prompts, settings — and offers the backup in the same
+   dialog. Guessing is what makes destructive buttons frightening.
+3. **It only removes files Lantern writes.** Chats, `settings.json`,
+   `personas.json`, `prompts.json`, `folders.json`. Anything else in the data
+   folder is left alone; verified with a file parked there by hand.
+
+Afterwards the page **reloads** rather than repainting. Every module holds state
+with nothing behind it any more, and the first-run flow keys off a fresh
+bootstrap — a reload is the honest way back to a blank slate. `localStorage` is
+cleared too, or the sidebar would try to reopen a chat that no longer exists.
+
+`personas.json` and `prompts.json` reappear immediately, because `get_personas()`
+and `get_prompts()` re-seed on read. That is correct: the reset removes *your*
+edits, and a fresh install has the seeds.
+
 ## The first-run flow
 
 Three steps, because a new user has exactly three questions: is Ollama working,
@@ -936,6 +961,9 @@ So: before a build or a release, actually click these. Two minutes.
       reply", which is the only case anyone tests by hand
 - [ ] Settings: an accent, a theme, text size — each applies on the first click
 - [ ] Export markdown + JSON, and **back up everything**
+- [ ] **Full reset**, against a scratch `LANTERN_DATA` and never your own:
+      the counts are right, the button stays dead until the word is typed,
+      and the reload lands on the first-run flow
 - [ ] `/usr/bin/python3 -m py_compile server.py`
 - [ ] **Check `lantern.log` is empty.** A shipped app writing tracebacks looks
       broken even when it is fine — that is how the disconnect noise was found

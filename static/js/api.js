@@ -65,6 +65,8 @@ export const api = {
   checkUpdate: (force) => request(`/api/update${force ? '?force=1' : ''}`),
 
   backup: () => request('/api/backup'),
+  // The server refuses without the literal word, so a stray call cannot wipe.
+  reset: () => request('/api/reset', { method: 'POST', body: { confirm: 'reset' } }),
   restore: (payload) => request('/api/restore', { method: 'POST', body: payload }),
 
   title: (model, transcript) => request('/api/title', { method: 'POST', body: { model, transcript } }),

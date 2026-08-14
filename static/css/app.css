@@ -1585,3 +1585,20 @@ mark.find-hit.on {
 .ob-dots { display: inline-flex; gap: 5px; margin-left: 4px; }
 .ob-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--bg-active); transition: background .2s; }
 .ob-dots i.on { background: var(--accent); }
+
+/* ═════════════════════════ full reset ═════════════════════════ */
+/* Destructive, and styled so it reads that way before it is clicked. */
+.btn.danger { color: #f8717a; border-color: color-mix(in srgb, #f43f5e 35%, var(--line)); }
+.btn.danger:hover { background: color-mix(in srgb, #f43f5e 14%, transparent); color: #ff8a92; }
+.btn.btn-primary.danger {
+  background: #e0424f; border-color: #e0424f; color: #fff;
+}
+.btn.btn-primary.danger:hover { background: #ef4d5a; color: #fff; }
+.btn.btn-primary.danger:disabled { background: var(--bg-3); border-color: var(--line); color: var(--fg-3); }
+
+.reset-lead { color: var(--fg-2); font-size: .875rem; line-height: 1.55; margin: 0 0 10px; }
+.reset-list {
+  margin: 0 0 18px; padding-left: 20px;
+  color: var(--fg); font-size: .875rem; line-height: 1.75;
+}
+.reset-list li::marker { color: #f8717a; }

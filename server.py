@@ -1988,6 +1988,37 @@ class Handler(BaseHTTPRequestHandler):
                 _PARSE_CACHE.clear()
             return self.json_out({"ok": True, "added": added, "skipped": skipped})
 
+        # ---- full reset --------------------------------------------------
+        #
+        # The most destructive thing in the app, and this data folder has lost
+        # chats twice already. Three things hold it:
+        #
+        #   1. The literal word "reset" must be in the body. The interface asks
+        #      the user to type it, but the *server* is what refuses without it,
+        #      so no stray or replayed POST can wipe a folder.
+        #   2. It reports exactly what it removed, so the toast is a fact rather
+        #      than a hope.
+        #   3. It only ever removes files Lantern itself writes. Anything else in
+        #      the data folder — a backup someone parked there, the log — stays.
+        if parts == ["reset"] and method == "POST":
+            body = self.body_json()
+            if (body or {}).get("confirm") != "reset":
+                return self.fail(400, "Reset not confirmed",
+                                 'Send {"confirm": "reset"} to do this.')
+            with _LOCK:
+                ensure_dirs()
+                removed = 0
+                for path in sorted(CHATS.glob("c_*.json")):
+                    path.unlink(missing_ok=True)
+                    removed += 1
+                for path in (settings_path(), personas_path(),
+                             prompts_path(), folders_path()):
+                    path.unlink(missing_ok=True)
+            with _PARSE_LOCK:
+                _PARSE_CACHE.clear()
+            _UPDATE_CACHE.update({"at": 0.0, "data": None})
+            return self.json_out({"ok": True, "chats_removed": removed})
+
         # ---- chats -------------------------------------------------------
         if parts == ["chats"]:
             if method == "GET":

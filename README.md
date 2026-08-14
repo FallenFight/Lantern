@@ -136,9 +136,11 @@ built-in guide explains what each value does.
 (Paper, Mist), or follow the system. Adjustable accent, text size, message width,
 and density.
 
-**Export.** Any chat as Markdown or JSON, or everything at once as a single
-backup file. Restore offers merge, which never overwrites an existing chat, or
-replace.
+**Export and reset.** Any chat as Markdown or JSON, or everything at once as a
+single backup file. Restore offers merge, which never overwrites an existing
+chat, or replace. Settings also has a **full reset** that deletes every chat,
+folder, persona, prompt and setting and starts the first-run setup again — it
+offers the backup first and asks you to type the word before it will run.
 
 ## Tools
 

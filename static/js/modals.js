@@ -431,6 +431,10 @@ export function openSettings() {
         onclick: () => { closeModal(); window.__lantern?.restoreAll?.(); } }))));
   body.append(srow('Settings guide', 'What each sampling value does, in plain terms.',
     el('button', { class: 'btn btn-ghost', text: 'Open guide', onclick: openGuide })));
+  body.append(srow('Full reset',
+    'Deletes every chat, folder, persona, saved prompt and setting, and starts the '
+    + 'first-run setup again. There is no undo other than a backup.',
+    el('button', { class: 'btn btn-ghost danger', text: 'Reset…', onclick: openReset })));
   body.append(srow('Chats stored', `${S.chats.length} conversation${S.chats.length === 1 ? '' : 's'} on disk`,
     el('span', { class: 'mono-sm', text: 'JSON' })));
 
@@ -1150,4 +1154,71 @@ export function openShortcuts() {
       el('div', { class: 'sr-ctl' }, el('span', { class: 'kbd', text: keys }))));
   }
   openModal('Keyboard shortcuts', body);
+}
+
+
+/**
+ * Full reset, guarded like the loaded gun it is.
+ *
+ * This data folder has lost chats twice, so the flow is deliberately slow: it
+ * says exactly what will go, offers the backup first, and will not enable the
+ * button until the word is typed. The server refuses without that word too, so
+ * the dialog is a courtesy rather than the actual lock.
+ */
+export function openReset() {
+  const counts = el('ul', { class: 'reset-list' });
+  const chats = S.chats.length;
+  const items = [
+    [chats, `chat${chats === 1 ? '' : 's'}`],
+    [S.folders.length, `folder${S.folders.length === 1 ? '' : 's'}`],
+    [S.personas.length, `persona${S.personas.length === 1 ? '' : 's'}`],
+    [S.prompts.length, `saved prompt${S.prompts.length === 1 ? '' : 's'}`],
+  ];
+  for (const [n, label] of items) {
+    counts.append(el('li', { text: `${n} ${label}` }));
+  }
+  counts.append(el('li', { text: 'every setting, including your model and theme' }));
+
+  const field = el('input', { class: 'inp', placeholder: 'reset', autocomplete: 'off' });
+  const go = el('button', { class: 'btn btn-primary danger', text: 'Delete everything' });
+  go.disabled = true;
+  field.addEventListener('input', () => {
+    go.disabled = field.value.trim().toLowerCase() !== 'reset';
+  });
+
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    go.textContent = 'Deleting…';
+    try {
+      const result = await api.reset();
+      // Reload rather than repainting: every module holds state that no longer
+      // has anything behind it, and the first-run flow keys off a fresh
+      // bootstrap. A reload is the honest way back to a blank slate.
+      localStorage.clear();
+      toast(`Deleted ${result.chats_removed} chat${result.chats_removed === 1 ? '' : 's'}`);
+      setTimeout(() => window.location.reload(), 400);
+    } catch (err) {
+      go.disabled = false;
+      go.textContent = 'Delete everything';
+      toast(`Reset failed: ${err.message}`, 'bad');
+    }
+  });
+
+  const body = el('div', {},
+    el('p', { class: 'reset-lead', text: 'This permanently deletes:' }),
+    counts,
+    el('p', { class: 'reset-lead', text:
+      'Back up first. The file downloads to this machine and can be restored from '
+      + 'Settings afterwards.' }),
+    el('button', { class: 'btn btn-ghost', text: 'Download a backup',
+      onclick: () => window.__lantern?.backupAll?.() }),
+    el('p', { class: 'reset-lead', style: 'margin-top:18px', text:
+      'Type reset below to confirm.' }),
+    field);
+
+  openModal('Full reset', body,
+    el('div', { style: 'display:flex;gap:8px;justify-content:flex-end;width:100%' },
+      el('button', { class: 'btn btn-ghost', text: 'Cancel', onclick: closeModal }),
+      go));
+  setTimeout(() => field.focus(), 50);
 }
