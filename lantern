@@ -4,7 +4,15 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Share one history with Lantern.app instead of creating a second one in ./data.
-export LANTERN_DATA="${LANTERN_DATA:-$HOME/Library/Application Support/Lantern}"
+# This is a bash script, so Linux reaches it too — and Application Support is
+# meaningless there, so it would have quietly created ~/Library on a Linux box.
+if [ -z "${LANTERN_DATA:-}" ]; then
+  case "$(uname -s)" in
+    Darwin) LANTERN_DATA="$HOME/Library/Application Support/Lantern" ;;
+    *)      LANTERN_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/lantern" ;;
+  esac
+fi
+export LANTERN_DATA
 
 if ! command -v ollama >/dev/null 2>&1; then
   echo "Ollama isn't installed. Get it from https://ollama.com/download" >&2

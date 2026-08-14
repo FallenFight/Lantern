@@ -101,6 +101,29 @@ you want the app to tell you when a release has happened, turn on
 default. It and the URL reader are the only things in Lantern that talk to
 anything but your own Ollama, and both are off until you switch them on.
 
+### Windows and Linux — in a browser, and **untested**
+
+There is no native window outside macOS, and no plan for one until someone asks.
+What there is: the server and the interface have no macOS in them, so Lantern
+should run anywhere Python 3 does, in an ordinary browser.
+
+```bash
+python3 server.py --open
+```
+
+On Windows there's a `lantern.cmd` that mirrors the macOS launcher — it starts
+Ollama if it isn't running and keeps your history in `%APPDATA%\Lantern` rather
+than a second copy under `.\data`.
+
+**Read this before relying on it.** Nobody has run Lantern on Windows or Linux.
+What has actually been checked is that `server.py` imports nothing POSIX-only,
+calls nothing POSIX-only, hardcodes no Unix paths, prints no characters that a
+legacy Windows console could choke on, and builds every filesystem path through
+`pathlib`. The parent-process watchdog is macOS-only and simply never starts
+elsewhere. That is an audit, not a test run — the browser-and-server shape is
+exercised constantly, the *platform* is not. Treat it as "should work, and tell
+us when it doesn't" rather than a supported target.
+
 ### From a terminal
 
 ```bash
@@ -469,23 +492,20 @@ following of links found on the page.
 | `Enter` | Send | `⇧Enter` | Newline |
 | `/` | Focus composer | | |
 
-On Linux and Windows, `Ctrl` replaces `⌘`.
+On Linux and Windows, `Ctrl` replaces `⌘` — though see *Windows and Linux*
+above: those platforms are audited, not tested.
 
 ---
 
 ## Layout
 
+**The app itself is one codebase and runs anywhere.** Only the packaging is
+per-platform, and nothing is built at all outside macOS.
+
 ```
+THE APP — no platform code in any of it
 server.py            stdlib HTTP server: Ollama proxy, JSON storage, guard,
                      tool registry (add a tool = one entry in TOOLS)
-native/main.swift    NSWindow + WKWebView host, runs the server as a child
-lantern              terminal launcher (starts ollama if needed)
-build-app.sh         assembles dist/Lantern.app
-tools/make_icon.py   renders the app icon procedurally (no Pillow)
-tools/lint.py        checks code and docs against traps that already bit us
-tools/hooks/         git hooks — `git config core.hooksPath tools/hooks`
-NOTES.md             design decisions, rejected approaches, traps
-CLAUDE.md            standing constraints, for coding assistants
 static/
   index.html
   css/app.css
@@ -499,7 +519,20 @@ static/
     theme.js         theme variables
     api.js           fetch + NDJSON streaming
     util.js          helpers
-data/                created on first run (or ~/Library/Application Support/Lantern)
+
+HOW IT STARTS — pick the one for your machine
+lantern              macOS and Linux: starts ollama, opens a browser
+lantern.cmd          Windows: the same, untested
+build-app.sh         macOS only: assembles dist/Lantern.app
+native/main.swift    macOS only: NSWindow + WKWebView host, runs the server
+tools/make_icon.py   macOS only: renders the .icns procedurally (no Pillow)
+
+EVERYWHERE
+tools/lint.py        checks code and docs against traps that already bit us
+tools/hooks/         git hooks — `git config core.hooksPath tools/hooks`
+NOTES.md             design decisions, rejected approaches, traps
+CLAUDE.md            standing constraints, for coding assistants
+data/                created on first run, unless a launcher points elsewhere
 ```
 
 Small enough to read end to end. Chat writes are atomic (temp file +

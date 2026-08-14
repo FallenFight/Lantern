@@ -48,7 +48,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 # The update check. Unauthenticated and read-only; GitHub allows 60 requests an
 # hour per IP, which one check per launch cannot come near.
@@ -2215,7 +2215,10 @@ def main() -> int:
     # Binding beyond loopback is opt-in; keep that host reachable but say so.
     if args.host not in LOOPBACK:
         ALLOWED_HOSTS.add(args.host.lower())
-        print(f"  WARNING    bound to {args.host} — reachable off this machine")
+        # ASCII only: this is the one print with a non-loopback host in it, and
+        # an em-dash here can raise UnicodeEncodeError when stdout is redirected
+        # on a Windows console using a legacy code page.
+        print(f"  WARNING    bound to {args.host} - reachable off this machine")
 
     if os.environ.get("LANTERN_WATCH_PARENT"):
         threading.Thread(target=watch_parent, daemon=True).start()

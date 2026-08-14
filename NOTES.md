@@ -563,6 +563,82 @@ sharper, that is the gap to close first.
 following links found on the page. Search is a later conversation, and SearXNG on
 localhost fits this project better than an API key.
 
+## Windows and Linux — audited, not tested
+
+**The app was already portable and nobody had noticed.** `server.py` is 2,200
+lines with no macOS in it at all: no POSIX-only imports, no POSIX-only `os`
+calls, no hardcoded Unix paths, every filesystem path through `pathlib`, and it
+does not even start Ollama — it only reports whether it is reachable. The front
+end has had `MOD = isMac ? '⌘' : 'Ctrl+'` since the beginning.
+
+Everything macOS-only is **packaging**, about 785 lines of it: `main.swift`,
+`build-app.sh` and the `lantern` bash launcher. None of it is the app.
+
+So the browser path costs almost nothing, and `lantern.cmd` mirrors the bash
+launcher — `%APPDATA%\Lantern` for history, start Ollama if nothing answers.
+
+Two things the audit turned up:
+
+- **An em-dash in a `print()`.** Only reachable with `--host` off loopback, but a
+  legacy Windows code page can raise `UnicodeEncodeError` on it when stdout is
+  redirected. That line is ASCII now.
+- **`watch_parent()` is opt-in** via `LANTERN_WATCH_PARENT`, set only by the
+  native host, so the reparenting watchdog never starts elsewhere. Just as well:
+  Windows does not reparent orphans, so it would never fire anyway.
+
+**The one real platform difference, and it is tested.** `static()` builds a
+filesystem path from a URL path, and on Windows `pathlib` treats a **backslash**
+as a separator — so `/..\..\..\Windows\win.ini` is a traversal shape that simply
+does not exist on macOS, where a backslash is an ordinary filename character.
+
+That did not need a Windows machine to check: `ntpath` and `PureWindowsPath`
+import fine on macOS, so the whole of `static()`'s path handling was replayed
+under Windows semantics. Backslash traversal, mixed traversal and a
+`static\..\..` escape all resolve outside `STATIC` and are refused by the
+existing `is_relative_to()` guard; normal assets still resolve inside. The guard
+holds because it compares resolved path *objects* rather than strings.
+
+**Simulating the semantics is not the same as running the platform**, and the
+distinction is worth keeping straight: the traversal guard is verified, the app
+launching on Windows is not.
+
+**Why it says "untested" in the README rather than "supported".** The whole
+discipline here is verify-by-running, and three bugs shipped because code was
+read and the app was never operated. Claiming a platform nobody has launched
+would be that failure at its largest — a promise to strangers on a machine we
+have never seen. The README already carried an unqualified "On Linux and Windows,
+`Ctrl` replaces `⌘`", written long before any of this; it is qualified now.
+
+**There is nothing to separate, and that is the design.** Source-only
+distribution means a release ships **zero binaries** — it is a git tag, and every
+platform clones the same tree. So there is no "Windows build" sitting beside a
+"Mac build" that could drift apart. There is one app, and per-platform *starting*:
+
+| | how it starts | history lives in |
+|---|---|---|
+| macOS | `build-app.sh` → `Lantern.app`, or `./lantern` | `~/Library/Application Support/Lantern` |
+| Linux | `./lantern` | `${XDG_DATA_HOME:-~/.local/share}/lantern` |
+| Windows | `lantern.cmd` | `%APPDATA%\Lantern` |
+| anywhere | `python3 server.py --open` | `./data` |
+
+The asymmetry is the point: macOS has a *build*, everywhere else has no build
+step at all. Resisting the urge to add one — a `platform/` directory, a
+cross-platform build script, per-OS release assets — is what keeps this from
+becoming a packaging project. Three launchers named after their platforms is
+enough separation for three platforms; revisit it at ten.
+
+**Trap found doing this:** `lantern` hardcoded
+`$HOME/Library/Application Support/Lantern`. It is a *bash* script, so Linux
+reaches it too, and it would have silently created a `~/Library` tree on a Linux
+box — the sort of thing nobody notices until their chats are in two places. It
+picks by `uname` now, and the macOS branch is byte-identical so no existing data
+moves.
+
+A native Windows window stays unbuilt until someone asks. It is a second native
+surface to maintain — the reasoning that cut the global hotkey — and unsigned
+Windows binaries hit SmartScreen, which is the same problem as macOS quarantine
+and has the same answer: build it yourself.
+
 ## The 1.0 compatibility promise
 
 1.0 is not "feature complete" — it is **"ready for strangers"**. The thing a
@@ -889,7 +965,7 @@ Still to do, and none of it is blocking anything:
 
 ## Where things stand
 
-**Shipped: `v1.2.0`, and the repo is public.**
+**Shipped: `v1.2.1`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
@@ -917,8 +993,9 @@ The three patch releases after it, oldest first:
   update check: the first thing in the app that can reach past your own machine.
   How it is gated is under *The update check* above.
 
-Since then: **`1.1.0`** added folders for chats, and **`1.2.0`** the opt-in
-`read_url` tool — the second thing that can reach off the machine, and the first
+Since then: **`1.1.0`** added folders for chats, **`1.2.0`** the opt-in
+`read_url` tool, and **`1.2.1`** a Windows/Linux browser path — audited rather
+than tested, and labelled that way; see *Windows and Linux* above — the second thing that can reach off the machine, and the first
 where the *model* picks the address. *The URL reader* above has the fence and the
 two hang-the-reply bugs a robustness pass caught after the first suite passed.
 
@@ -1099,8 +1176,12 @@ knowing your gaps is useful; they are not on the menu.
 4. ~~Folders or tags for chats~~ — **built.** Folders, not tags; the reasoning
    and the traps are under *Folders* above. Tags are still possible as a separate
    additive field if per-chat labels ever earn their place.
-5. Speech-to-text / TTS.
-6. Context compaction when the window fills. The cheap half is done — the default
+5. **A native Windows window** — unbuilt on purpose. The browser path works
+   (see *Windows and Linux* above); a WebView2 host is a second native surface to
+   maintain, and unsigned Windows binaries hit SmartScreen exactly as unsigned
+   Mac ones hit quarantine. Build-it-yourself answers both. Waiting for demand.
+6. Speech-to-text / TTS.
+7. Context compaction when the window fills. The cheap half is done — the default
    `num_ctx` went from 8192 to **32768** in 0.9.0, measured at **+0.83 GB
    resident on a 9B model, about 34 MB per 1k tokens**, for 4× the usable
    conversation. 65536 would have cost ~2 GB for headroom almost nobody reaches.
