@@ -277,7 +277,58 @@ export function openPrompts() {
 }
 
 /** Drop a saved prompt into the composer at the cursor. */
+/** `{{name}}` placeholders in a saved prompt, in order, without duplicates. */
+export function promptSlots(text) {
+  const names = [];
+  for (const m of String(text || '').matchAll(/\{\{\s*([^{}]{1,40}?)\s*\}\}/g)) {
+    if (!names.includes(m[1])) names.push(m[1]);
+  }
+  return names;
+}
+
+/**
+ * Insert a saved prompt, asking for its blanks first.
+ *
+ * A template with no placeholders behaves exactly as before, so nothing about
+ * the existing library changes until someone writes a `{{...}}` into one.
+ */
 export function insertPrompt(text) {
+  const slots = promptSlots(text);
+  if (!slots.length) return insertRaw(text);
+
+  const fields = new Map();
+  const body = el('div', {},
+    el('p', { class: 'reset-lead', text:
+      'Fill the blanks. Anything left empty stays as-is so you can finish it in '
+      + 'the composer.' }));
+  for (const name of slots) {
+    const field = el('input', { class: 'inp', placeholder: name, autocomplete: 'off' });
+    fields.set(name, field);
+    body.append(el('div', { class: 'slot-row' },
+      el('label', { class: 'slot-label', text: name }), field));
+  }
+
+  const fill = () => {
+    const filled = text.replace(/\{\{\s*([^{}]{1,40}?)\s*\}\}/g, (whole, name) => {
+      const value = fields.get(name)?.value.trim();
+      return value || whole;      // leave the placeholder visible if unanswered
+    });
+    closeModal();
+    insertRaw(filled);
+  };
+
+  body.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); fill(); }
+  });
+
+  openModal('Fill in the prompt', body,
+    el('div', { style: 'display:flex;gap:8px;justify-content:flex-end;width:100%' },
+      el('button', { class: 'btn btn-ghost', text: 'Cancel', onclick: closeModal }),
+      el('button', { class: 'btn btn-primary', text: 'Insert', onclick: fill })));
+  setTimeout(() => fields.get(slots[0])?.focus(), 50);
+}
+
+function insertRaw(text) {
   const input = $('#input');
   if (!input) return;
   const start = input.selectionStart ?? input.value.length;

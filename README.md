@@ -122,12 +122,19 @@ fractions, superscripts and subscripts, `\sqrt`, `\text`, and a broad set of
 symbols. The markdown renderer, syntax highlighter, and maths renderer are all
 written from scratch, so nothing is fetched from a CDN.
 
+**Interactive choices.** A model can offer clickable options by ending a reply
+with a fenced block tagged `options`, one per line. They render as buttons that
+fill the composer — clicking never sends on its own, so the model can't put words
+in your mouth and press return.
+
 **Personas and prompts.** Personas are named system prompts, each able to pin its
 own model, thinking setting, and sampling overrides. Default, Terse, Engineer,
-Socratic Tutor, and Editor ship, all editable — Default is the blank one, with no
+Socratic Tutor, Game Master, and Editor ship, all editable — Default is the blank one, with no
 system prompt, so every chat has a persona and you can fill it in rather than
 choosing between nothing and something. Saved prompts are the things you retype,
-inserted from the command palette.
+inserted from the command palette. A saved prompt can hold `{{placeholders}}`:
+inserting it asks you to fill the blanks first, and anything left empty stays
+visible so you can finish it in the composer.
 
 **Models and parameters.** Pull with a progress bar, delete, unload, preload.
 Temperature, top-p, top-k, min-p, repeat penalty, context window, prediction
@@ -160,6 +167,7 @@ Settings if you would rather not pay the schema tokens until you ask.
 | `search_chats` | Full-text search across your saved conversations |
 | `calculate` | Exact arithmetic, parsed and evaluated without `eval()` |
 | `read_url` | Fetches a web page and reads its text |
+| `roll_dice` | Rolls dice in standard notation, showing every die |
 
 Every call appears in the thread with its exact arguments and the exact result,
 collapsed by default. A tool result is only as good as what the model asked it,

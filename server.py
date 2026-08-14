@@ -194,6 +194,37 @@ SEED_PERSONAS = [
         "description": "Teaches by guiding rather than telling.",
     },
     {
+        "name": "Game Master",
+        "emoji": "\U0001f3b2",
+        "prompt": (
+            "You are the narrator of an interactive story. The user is the "
+            "protagonist and decides what they do.\n\n"
+            "Every turn: describe what happens in two or three short paragraphs, "
+            "in the present tense, then stop and hand control back. Never decide "
+            "the user's actions, thoughts or dialogue for them, and never narrate "
+            "past the moment a choice matters.\n\n"
+            "End every turn with two to four choices in exactly this shape, "
+            "including the word options on the opening fence:\n\n"
+            "```options\n"
+            "Climb the stairs\n"
+            "Search the desk instead\n"
+            "```\n\n"
+            "One choice per line, each a short phrase in the user's voice, no "
+            "bullets or numbering needed. The interface turns them into buttons. "
+            "Always offer them, and make them genuinely different — not the same "
+            "action reworded. The user may ignore them and type something else, "
+            "which is fine.\n\n"
+            "When an outcome turns on chance or skill, call the roll_dice tool "
+            "and narrate what it actually returned. Do not invent a number, and "
+            "do not decide the result first and roll to justify it. If the roll "
+            "goes badly, let it go badly.\n\n"
+            "Keep continuity with everything established so far. If the user "
+            "sets the genre or the scene, follow it; otherwise open somewhere "
+            "with an immediate decision to make."
+        ),
+        "description": "Narrates an interactive story, with choices and real dice.",
+    },
+    {
         "name": "Editor",
         "emoji": "✍️",
         "prompt": (
@@ -1125,6 +1156,41 @@ def _calc_eval(node, depth=0):
     raise ValueError(f"{type(node).__name__} is not allowed here")
 
 
+DICE = re.compile(r"^\s*(\d{0,3})\s*d\s*(\d{1,4})\s*(?:([+-])\s*(\d{1,4}))?\s*$", re.I)
+
+
+def _tool_roll_dice(args: dict) -> dict:
+    """
+    Roll dice, showing every die.
+
+    Every individual result is returned, not just the total, so a player can see
+    the model did not invent the outcome — the same reasoning as rendering a
+    calculate call with its exact arguments. Bounded at 100 dice and 1000 sides
+    so a model asking for 99999d99999 is a refusal rather than a hang.
+    """
+    spec = str(args.get("dice") or "").strip()
+    match = DICE.match(spec)
+    if not match:
+        return {"error": "Could not read %r. Use a form like d20, 3d6 or 2d8+1."
+                         % spec[:40], "_display": "bad dice", "_ok": False}
+    count = int(match.group(1) or 1)
+    sides = int(match.group(2))
+    sign, mod = match.group(3), int(match.group(4) or 0)
+    if not 1 <= count <= 100 or not 2 <= sides <= 1000:
+        return {"error": "Roll between 1 and 100 dice with 2 to 1000 sides.",
+                "_display": "out of range", "_ok": False}
+    rolls = [secrets.randbelow(sides) + 1 for _ in range(count)]
+    modifier = mod if sign == "+" else -mod if sign == "-" else 0
+    total = sum(rolls) + modifier
+    out = {"dice": "%dd%d%s" % (count, sides,
+                                ("%+d" % modifier) if modifier else ""),
+           "rolls": rolls, "total": total}
+    if modifier:
+        out["modifier"] = modifier
+    out["_display"] = "%s = %d" % (out["dice"], total)
+    return out
+
+
 def _tool_calculate(args: dict) -> dict:
     expression = str(args.get("expression") or "").strip()
     if not expression:
@@ -1319,6 +1385,37 @@ TOOLS = {
             },
         },
         "run": _tool_read_url,
+    },
+    "roll_dice": {
+        "summary": "Rolls dice, and shows every die.",
+        "spec": {
+            "type": "function",
+            "function": {
+                "name": "roll_dice",
+                "description": (
+                    "Roll dice for an outcome you should not decide yourself. Use "
+                    "it whenever a story, game or decision turns on chance — a "
+                    "skill check, an attack, a random encounter, picking between "
+                    "options. Returns every individual die as well as the total, "
+                    "and the result is shown to the user, so do not state a "
+                    "number this did not return."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "dice": {
+                            "type": "string",
+                            "description": (
+                                "Standard dice notation: d20, 3d6, 2d8+1, 4d4-2. "
+                                "Up to 100 dice of up to 1000 sides."
+                            ),
+                        },
+                    },
+                    "required": ["dice"],
+                },
+            },
+        },
+        "run": _tool_roll_dice,
     },
     "search_chats": {
         "summary": "Searches the text of your saved conversations.",

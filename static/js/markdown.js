@@ -323,6 +323,25 @@ export function renderMarkdown(src, opts = {}) {
       }
       const closed = i < lines.length;
       i++; // consume the closing fence (or run off the end while streaming)
+      // A model can offer choices by tagging a fence `options`. Piggy-backing on
+      // the fence parser is deliberate: models emit fenced blocks constantly and
+      // reliably, where a bespoke `::: options` syntax would be guessed at, and
+      // it inherits the unclosed-while-streaming handling for free.
+      // Models get the tag wrong in a small, predictable set of ways: qwen wrote
+      // an untagged fence with `{options}` as its first line. Accepting a
+      // first-line marker on an *untagged* fence covers that without opening the
+      // door to guessing — the line has to be exactly the marker, so a code
+      // block whose first line happens to mention options is unaffected.
+      let optionBody = null;
+      if (/^options$/i.test(info.trim())) optionBody = body;
+      else if (!info.trim() && body.length
+               && /^[\[{(]?\s*options\s*[\]})]?:?$/i.test(body[0].trim())) {
+        optionBody = body.slice(1);
+      }
+      if (optionBody) {
+        out.push(optionChips(optionBody));
+        continue;
+      }
       out.push(codeBlock(body.join('\n'), info.trim(), doHighlight, closed));
       continue;
     }
@@ -642,7 +661,46 @@ function safeUrl(url) {
 }
 
 /** Attach copy/wrap handlers inside a rendered container. */
+/**
+ * Clickable choices offered by the model.
+ *
+ * Every label goes through escapeHtml and is carried in a data attribute that is
+ * read with textContent on click — a chip is text the *model* wrote, so it never
+ * reaches a markup sink. Clicking fills the composer rather than sending, so the
+ * model can never put words in your mouth and press return.
+ */
+function optionChips(lines) {
+  const labels = lines
+    .map((l) => l.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  if (!labels.length) return '';
+  const chips = labels.map((label) => {
+    const safe = escapeHtml(label);
+    return `<button type="button" class="chip" data-chip="${safe}">${safe}</button>`;
+  }).join('');
+  return `<div class="chips" role="group">${chips}</div>`;
+}
+
 export function wireCodeBlocks(root) {
+  // Chips ride along with the code-block wiring: it is already called from every
+  // render path (full, append, and single-node replace), so there is one hook to
+  // keep correct rather than three.
+  root.querySelectorAll('.chips').forEach((group) => {
+    if (group.dataset.wired) return;
+    group.dataset.wired = '1';
+    group.addEventListener('click', (event) => {
+      const chip = event.target.closest('.chip');
+      if (!chip) return;
+      const input = document.querySelector('#input');
+      if (!input) return;
+      input.value = chip.textContent;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  });
+
   root.querySelectorAll('.code-wrap').forEach((wrap) => {
     if (wrap.dataset.wired) return;
     wrap.dataset.wired = '1';

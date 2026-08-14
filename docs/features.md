@@ -138,6 +138,65 @@ memory arithmetic for why parallel cannot work here. The rest:
   decision. Open WebUI's thumbs-up leaderboard idea becomes nearly free once
   variants exist.
 
+## Option chips, and the shape a model actually emits
+
+A model can offer clickable choices by ending a reply with a fence tagged
+`options`, one per line. They render as buttons that **fill the composer rather
+than send** — the model can suggest, never act, so it cannot put words in your
+mouth and press return.
+
+**It rides on the fence parser deliberately.** A bespoke `::: options` container
+would be something models guess at; fenced blocks are something they emit
+constantly and get right. It also inherits the unclosed-while-streaming handling
+for free, so chips appear as they arrive.
+
+**The label is text the model wrote, so it never reaches a markup sink.** Each
+goes through `escapeHtml()` and is read back with `textContent`. Verified with a
+reply containing `<img src=x onerror=alert(1)>` and a `<script>` tag: both render
+as literal text, and the thread gains no `script` or `img` nodes.
+
+**The first real model got the syntax wrong, which is the useful part.** Told to
+end with "a fenced block tagged `options`", qwen3.5 wrote an *untagged* fence
+with `{options}` as its first line. Two fixes, and both were needed:
+
+- The persona now shows the literal shape instead of describing it. A worked
+  example beats a description for this class of instruction.
+- The parser accepts a first-line marker on an **untagged** fence — `options`,
+  `{options}`, `[options]`. Bounded on purpose: the line must be exactly the
+  marker, so a code block that merely mentions options is unaffected. This is not
+  the unwinnable per-model syntax chase that tool-call leakage was; the variants
+  are few and unambiguous.
+
+After both, the same model produced a correct block first time.
+
+## Roleplay, as a persona rather than a mode
+
+The Game Master persona narrates, hands control back every turn, and ends with
+choices in an `options` block. It is a **persona, not a mode**, and that is the
+design: a mode is a permanent fork in the app, while a persona is a system prompt
+you can read, edit and delete, and it already pins model, thinking and sampling.
+
+`roll_dice` makes the outcomes real. It returns **every individual die**, not
+just the total, so a player can see the model did not invent the result — the
+same reasoning as rendering a `calculate` call with its exact arguments. Bounded
+at 100 dice of up to 1000 sides, so `99999d99999` is a refusal rather than a
+hang, and `secrets.randbelow` rather than `random` because there is no reason to
+use a seeded PRNG here.
+
+Verified end to end: asked to roll on arrival, qwen called `roll_dice`, got
+`1d20+5 = 18`, narrated that result, and offered four chips.
+
+## Prompt templates
+
+A saved prompt can contain `{{placeholders}}`. Inserting one opens a field per
+unique placeholder, in order; an unanswered slot is **left visible** rather than
+silently emptied, so a half-filled template is obvious in the composer instead of
+producing a sentence with a hole in it.
+
+A prompt with no placeholders takes exactly the path it always did, so nothing in
+the existing library changes until someone writes a `{{...}}` into one. Verified
+both directions from the palette.
+
 ## Folders
 
 Chosen over tags, and the reason is the sidebar rather than taste. It is ~260px
