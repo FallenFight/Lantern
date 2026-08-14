@@ -397,12 +397,16 @@ export function openSettings() {
     class: 'inp',
     onchange: (e) => patchSettings({ default_persona: e.target.value || null }),
   });
-  personaSel.append(el('option', { value: '', text: 'None' }));
+  // No "None": every chat resolves to a persona now, and Default is the blank
+  // one. Pre-select whatever currentPersona() would actually fall back to, so
+  // the dropdown never disagrees with the pill.
+  const fallback = S.personas.find((p) => p.id === st.default_persona) || S.personas[0];
   for (const p of S.personas) {
     const opt = el('option', { value: p.id, text: `${p.emoji} ${p.name}` });
-    if (p.id === st.default_persona) opt.selected = true;
+    if (p.id === (fallback?.id)) opt.selected = true;
     personaSel.append(opt);
   }
+  if (!S.personas.length) personaSel.append(el('option', { text: 'no personas' }));
   body.append(srow('Default persona', 'Applied to new chats.', personaSel));
 
   body.append(el('div', { class: 'sec-row' },

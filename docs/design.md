@@ -99,6 +99,32 @@ which meant the shipped app could not tell you what version it was.
 `list_chats()` and `search_chats()` walk every file and run on bootstrap, on
 every save, and on every search keystroke. ~7× faster warm.
 
+## There is no "no persona"
+
+The picker used to offer `○ No persona — Raw model behaviour` *and* a seeded
+`✨ Default` persona described as "No system prompt. Raw model behaviour." They
+did exactly the same thing: both resolved to an empty system prompt, and
+`buildPayloadMessages()` skips the system message when it is empty, so the
+request was byte-identical. Two entries, same subtitle, same behaviour — someone
+was going to ask which was which, and someone did.
+
+`Default` survived because it is the more useful of the two: a persona is an
+object that can also pin a model, a thinking setting and sampling overrides, so a
+blank persona is something you can fill in. A null was something you could only
+leave empty.
+
+**Nothing on disk changed, which is the point.** `currentPersona()` treats an
+unset *or dangling* `persona_id` as "use the default", falling through to the
+global default persona, then to the first one, then to null only when every
+persona has been deleted — where no system prompt is sent, exactly as before.
+Chats keep `persona_id: null` in their files and open unchanged in an older
+Lantern. A dangling id used to show "No persona"; it now resolves, which is a
+small fix that came free.
+
+Verified: a chat written with `persona_id: null` and one pointing at a deleted
+persona both show `Default`, the file still reads `null`, and the request sent to
+Ollama contains no system message.
+
 ## The 1.0 compatibility promise
 
 1.0 is not "feature complete" — it is **"ready for strangers"**. The thing a

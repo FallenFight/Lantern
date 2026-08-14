@@ -215,7 +215,7 @@ function renderTopbar() {
 
   const persona = currentPersona();
   $('#persona-emoji').textContent = persona?.emoji || '○';
-  $('#persona-name').textContent = persona?.name || 'No persona';
+  $('#persona-name').textContent = persona?.name || 'No personas';
 
   const thinkBtn = $('#think-toggle');
   const supported = thinkingSupported();
@@ -416,11 +416,6 @@ function openModelMenu() {
 function openPersonaMenu() {
   showMenu($('#persona-menu'), (menu) => {
     menu.append(el('div', { class: 'menu-label', text: 'Persona' }));
-    menu.append(menuItem({
-      title: 'No persona', sub: 'Raw model behaviour', icon: '○',
-      on: !S.chat?.persona_id,
-      run: () => applyPersona(null),
-    }));
     for (const persona of S.personas) {
       menu.append(menuItem({
         title: persona.name,

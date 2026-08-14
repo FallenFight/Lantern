@@ -124,8 +124,10 @@ written from scratch, so nothing is fetched from a CDN.
 
 **Personas and prompts.** Personas are named system prompts, each able to pin its
 own model, thinking setting, and sampling overrides. Default, Terse, Engineer,
-Socratic Tutor, and Editor ship, all editable. Saved prompts are the things you
-retype, inserted from the command palette.
+Socratic Tutor, and Editor ship, all editable — Default is the blank one, with no
+system prompt, so every chat has a persona and you can fill it in rather than
+choosing between nothing and something. Saved prompts are the things you retype,
+inserted from the command palette.
 
 **Models and parameters.** Pull with a progress bar, delete, unload, preload.
 Temperature, top-p, top-k, min-p, repeat penalty, context window, prediction

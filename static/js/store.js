@@ -90,7 +90,18 @@ export function currentModel(chat = S.chat) {
 
 export function currentPersona(chat = S.chat) {
   const id = chat ? chat.persona_id : S.settings?.default_persona;
-  return S.personas.find((p) => p.id === id) || null;
+  const found = S.personas.find((p) => p.id === id);
+  if (found) return found;
+  // There is no "no persona" state any more — an unset or dangling persona_id
+  // means "use the default". Nothing on disk is rewritten: chats written before
+  // this still carry `persona_id: null` and simply resolve differently, so an
+  // older Lantern opens them exactly as it always did.
+  //
+  // Falls through to the first persona so a chat always resolves, and to null
+  // only when every persona has been deleted — in which case no system prompt is
+  // sent, which is the same thing "no persona" used to do.
+  return S.personas.find((q) => q.id === S.settings?.default_persona)
+      || S.personas[0] || null;
 }
 
 export function personaById(id) {
