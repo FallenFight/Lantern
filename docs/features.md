@@ -169,6 +169,44 @@ with `{options}` as its first line. Two fixes, and both were needed:
 
 After both, the same model produced a correct block first time.
 
+## Continue a cut-off reply
+
+A reply that stops because it hit `num_predict` grows a **Continue** action.
+Pressing it streams into the *same message*, so the answer becomes one
+continuous block rather than a reply split across two turns.
+
+**`done_reason` is the honest signal.** Ollama reports `"length"` when a turn
+ran out of room and `"stop"` when it finished, and it has been recorded in every
+message's stats since 0.8 — nothing read it until now. The alternative, guessing
+from whether the text ends in punctuation, is wrong for code, lists and tables.
+Verified both ways: a capped reply offers the button, a normal one does not.
+
+**Only ever the last message.** Continuing an older turn would append text below
+replies that already answered it, and it is also what lets the tool loop stay
+untouched — anything a continued turn appends still lands at the end of the
+array, where the loop already expects it.
+
+**The nudge is never stored.** The request carries the history *including* the
+half-finished reply plus a transient "carry straight on" user turn. Writing that
+into the chat would leave a "continue" message sitting in the transcript for
+ever, and replaying it on later turns would be worse.
+
+**Trap, and the same one twice.** `streamRound()` pushed the placeholder unless
+it was the *comparison* target — so a resumed reply, whose target is a different
+variable, was pushed a second time and the thread grew a duplicate instead of the
+answer growing. The guard asks "is this already in the thread?" now, covering
+both. Two features stream into an existing message; a test for one of them by
+name will miss the other.
+
+**Known limitation, left alone deliberately.** If the cut lands mid-word the seam
+is rough: one reply ended `...known as **Cong` and the continuation began
+`control mechanism`, giving `**Congcontrol`. Trimming the partial word before
+resuming would fix that case and break the commoner one, because a reply cut at a
+*word boundary* is indistinguishable from one cut mid-word without token-level
+information the client does not have — the heuristic would delete real words.
+Rough joins are rarer and cheaper than lost ones. A raw completion endpoint would
+solve it properly and is a much larger change.
+
 ## Roleplay, as a persona rather than a mode
 
 The Game Master persona narrates, hands control back every turn, and ends with

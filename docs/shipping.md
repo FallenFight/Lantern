@@ -192,6 +192,9 @@ So: before a build or a release, actually click these. Two minutes.
       choices must render as clickable chips that *fill* the composer
 - [ ] A saved prompt with `{{blanks}}` asks for them; one without goes
       straight into the composer as it always did
+- [ ] **Continue**: set `num_predict` low enough to truncate a reply, press
+      Continue, and check the answer *grows in one message* rather than the
+      thread gaining a second one. Then a normal reply: no button at all
 - [ ] Reload with a reply in flight; switch chats mid-reply
 
 Also run:

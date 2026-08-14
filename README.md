@@ -93,7 +93,9 @@ reachable, lets you pick a default model, and shows what Lantern may do — tool
 reading web pages, checking for updates — each with a switch. Skippable, and it
 only appears on a data folder with no history, so upgrading never triggers it.
 
-**Chat.** Token-by-token streaming. Stop aborts the run upstream rather than
+**Chat.** Token-by-token streaming. A reply that runs out of room gets a
+**Continue** button that carries on in the same message rather than starting a
+new one. Stop aborts the run upstream rather than
 hiding the output. Regenerate, regenerate with a different model, edit and
 resend, delete a message, branch a new chat from any point, duplicate, and retry
 a failed reply. Conversations run independently, so you can start a long reply,

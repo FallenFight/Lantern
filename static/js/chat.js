@@ -343,6 +343,12 @@ function buildActions(message, index) {
       add(ICON.compare, '', 'Answer again with another model, keeping this one…',
         (event) => compareWith(index, event.currentTarget));
     }
+    // Only the last turn: continuing an older one would append text below
+    // replies that already answered it.
+    if (continuable(message) && index === (S.chat?.messages?.length ?? 0) - 1) {
+      add(ICON.down, 'Continue', 'This reply hit the length limit — carry on from where it stopped',
+        () => continueReply());
+    }
     add(ICON.branch, '', 'Branch a new chat from here', () => branchFrom(index));
   }
   add(ICON.trash, '', 'Delete message', () => deleteMessage(index));
@@ -545,6 +551,13 @@ function startEdit(message, index) {
   });
 }
 
+/** Carry on a reply that stopped because it ran out of room. */
+async function continueReply() {
+  const chat = S.chat;
+  if (!chat || isStreaming(chat.id)) return;
+  await runAssistant(chat, { resume: true });
+}
+
 async function regenerate(index) {
   const chat = S.chat;
   if (!chat || isStreaming(chat.id)) return;
@@ -718,6 +731,20 @@ async function selectVariant(chat, at, index) {
 }
 
 /**
+ * Whether a reply was cut off mid-thought rather than finishing.
+ *
+ * Ollama reports `done_reason: "length"` when a turn hits `num_predict`, which
+ * is the honest signal — the alternative is guessing from whether the text ends
+ * in punctuation, which is wrong for code, lists and tables. The field has been
+ * recorded in every message's stats since 0.8; nothing read it until now.
+ */
+const continuable = (message) => message?.role === 'assistant'
+  && !message.pending
+  && !!message.content
+  && !message.tool_calls?.length
+  && message.stats?.done_reason === 'length';
+
+/**
  * A turn that called tools cannot be compared: its results live in separate
  * `tool` messages after it, so swapping the answer would leave the wrong rows
  * underneath. A failed turn is excluded too — Retry is the action there, and an
@@ -806,6 +833,14 @@ export async function runAssistant(chat = S.chat, opts = {}) {
   const target = compareAt === null ? null : chat.messages[compareAt];
   if (compareAt !== null && !comparable(target)) return;
 
+  // Continue picks up a reply the model stopped mid-sentence because it hit
+  // num_predict. It only ever applies to the *last* message, which is both the
+  // only place it means anything and the reason it can leave the tool loop
+  // alone: anything a continued turn appends still lands at the end of the
+  // array, where the loop already expects it.
+  const resume = !!opts.resume && continuable(chat.messages[chat.messages.length - 1]);
+  const resumeTarget = resume ? chat.messages[chat.messages.length - 1] : null;
+
   const model = opts.model || currentModel(chat);
   if (!model) {
     toast('No model selected — pull one from the Models panel', 'bad');
@@ -845,7 +880,14 @@ export async function runAssistant(chat = S.chat, opts = {}) {
   /** One request and its stream. Returns the tool calls the model asked for. */
   async function streamRound(withTools) {
     painter.stop();
-    if (target && rounds === 0) {
+    if (resumeTarget && rounds === 0) {
+      // Stream *into* the existing reply. Nothing is cleared, so the painter
+      // appends to the text already there and the message grows rather than
+      // being replaced — which is the whole point: one continuous answer.
+      placeholder = resumeTarget;
+      placeholder.pending = false;
+      delete placeholder.stopped;
+    } else if (target && rounds === 0) {
       // Stream over the turn being compared, keeping its id so the painter, its
       // DOM node and any open find-marks stay attached to it.
       placeholder = target;
@@ -873,7 +915,18 @@ export async function runAssistant(chat = S.chat, opts = {}) {
       model,
       // Cut the history at the turn being re-answered, or the model is shown
       // its own later replies.
-      messages: buildPayloadMessages(chat, compareAt),
+      // A resume sends the history *including* the half-finished reply, then a
+      // nudge that is never stored — writing it into the chat would leave a
+      // "carry on" turn sitting in the transcript for ever.
+      messages: resume
+        ? buildPayloadMessages(chat, chat.messages.length).concat([{
+          role: 'user',
+          content: 'Continue your previous message from exactly where it stopped. '
+            + 'Do not repeat anything you have already written, do not restate the '
+            + 'question, and do not start again — carry straight on, mid-sentence '
+            + 'if that is where it ended.',
+        }])
+        : buildPayloadMessages(chat, compareAt),
       options: effectiveParams(chat),
     };
     if (S.settings?.keep_alive) body.keep_alive = S.settings.keep_alive;
@@ -883,11 +936,15 @@ export async function runAssistant(chat = S.chat, opts = {}) {
     // front end can never describe a callable the server cannot run.
     if (withTools) body.tools = toolNames;
 
-    if (placeholder !== target) {
+    // Compare and resume both stream into a message that is *already* in the
+    // array. Testing only against the compare target pushed a resumed reply in a
+    // second time, so the thread grew a duplicate instead of the answer growing.
+    const alreadyInThread = placeholder === target || placeholder === resumeTarget;
+    if (!alreadyInThread) {
       chat.messages.push(placeholder);
       if (visible()) appendMessagesFrom(chat, chat.messages.length - 1);
     } else if (visible()) {
-      replaceMessageNode(chat, compareAt);   // it lost its content; redraw in place
+      replaceMessageNode(chat, chat.messages.indexOf(placeholder));
     }
     if (rounds === 0) beginRun(chat, placeholder.id, abort);
     painter = makePainter(chat, placeholder);
