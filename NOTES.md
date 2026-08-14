@@ -57,12 +57,8 @@ than tested, and labelled that way; see *Windows and Linux* above — the second
 where the *model* picks the address. *The URL reader* above has the fence and the
 two hang-the-reply bugs a robustness pass caught after the first suite passed.
 
-**Still not done, and the biggest gap:** the README has **no screenshots**. For a
-UI project that matters more than any prose in it. Three worth taking: the thread
-mid-reply, an expanded tool call, and the compare view.
-
-Everything else is optional — see *Still open* below, ranked. Folders was cut
-from 1.0 deliberately: it is a feature, not a readiness gap.
+Everything remaining is optional — see *Still open* below, ranked. Folders was
+cut from 1.0 deliberately: it is a feature, not a readiness gap.
 
 ## Still open
 
@@ -78,10 +74,6 @@ Notarising needs a $99/yr Apple Developer account. Building locally sidesteps
 quarantine entirely and fits the zero-dependency story. The consequence is that
 updating is manual, which is what the update check in 1.0.3 exists to make
 visible; the README has the pull/rebuild/replace steps under *Updating*.
-
-**Still missing: README screenshots**, which for a UI app matter more than any
-prose in it. Three worth taking: the thread mid-reply, an expanded tool call, and
-the compare view. Deliberately deferred, not forgotten.
 
 Then, ranked by value, from the feature audit:
 
@@ -134,4 +126,5 @@ knowing your gaps is useful; they are not on the menu.
 | Global hotkey to summon the window | Cut from the roadmap. It is Swift in the native host, macOS-only, and Spotlight and ⌘Tab already summon the app — a new native surface to maintain for something the OS does |
 | **Parallel** multi-model comparison (the Msty / Open WebUI approach) | Not implementable on the target hardware. Measured: `qwen3.5-9b` is 7.29 GB resident at the 32k default, so two loaded models is ~14.6 GB on a 16 GB M4 — under 1.5 GB left for macOS and the app. Ollama would evict one mid-generation or the machine would swap. Comparison runs **sequentially** instead, which is a better fit, not a compromise |
 | MLX / Vulkan backends | Ollama's domain, not ours |
+| README screenshots | Owner's call: not happening for the foreseeable future. They would help a UI project on a public repo, and that argument has been made and declined. **Don't raise it again** — the rejected table is where things go so nobody re-proposes them |
 | Browser `--app` window | Was the original approach. Replaced by the native host; it cost a 112 MB Brave profile for a cosmetic window |
