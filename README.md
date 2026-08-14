@@ -1,7 +1,8 @@
 # Lantern
 
-A local chat interface for [Ollama](https://ollama.com). It runs on your machine,
-stores everything as plain JSON files, and has no accounts or telemetry.
+A local chat interface for [Ollama](https://ollama.com). Inference runs on your
+machine, chats are plain JSON files on your disk, and there are no accounts or
+telemetry.
 
 Built with the Python standard library and plain ES modules. No npm, no bundler,
 no Electron. The Mac app is a native window around a webview and the whole bundle
@@ -87,6 +88,11 @@ GitHub for newer releases if you turn that on in Settings; it is off by default.
 
 ## Features
 
+**First run.** A brand-new install opens a short setup flow: it checks Ollama is
+reachable, lets you pick a default model, and shows what Lantern may do — tools,
+reading web pages, checking for updates — each with a switch. Skippable, and it
+only appears on a data folder with no history, so upgrading never triggers it.
+
 **Chat.** Token-by-token streaming. Stop aborts the run upstream rather than
 hiding the output. Regenerate, regenerate with a different model, edit and
 resend, delete a message, branch a new chat from any point, duplicate, and retry
@@ -136,8 +142,11 @@ replace.
 
 ## Tools
 
-The Tools pill lets a model call into Lantern for things it cannot know. Off by
-default, since the schemas cost prompt tokens on every turn.
+The Tools pill, under the message box, lets a model call into Lantern for things
+it cannot know. It has two settings: **off**, and **auto**, where the tools are
+offered and the model decides whether to use any. Auto is the default for new
+chats, and only applies to models that advertise tool support. Turn it off in
+Settings if you would rather not pay the schema tokens until you ask.
 
 | Tool | What it does |
 |---|---|
@@ -151,7 +160,8 @@ collapsed by default. A tool result is only as good as what the model asked it,
 so the arguments are always visible for checking.
 
 `search_chats` gives the model read access to every saved conversation, not just
-the open one. `read_url` is off by default and covered under Security below.
+the open one. `read_url` is the only tool that reaches the internet, and it can
+be turned off on its own in Settings. See Security below.
 
 ## Configuration
 
@@ -190,7 +200,7 @@ banner.
 panel.
 
 **No Tools pill.** The model doesn't advertise tool calling. Check the Models
-panel for a tools chip.
+panel for a tools chip. The pill sits under the message box, beside Think.
 
 **Replies slow to start.** The model is loading. Turn on *Keep models loaded* in
 Settings to stop Ollama evicting it after a few idle minutes.
@@ -211,23 +221,27 @@ network except `read_url`.
 
 ### Network access
 
-By default Lantern only talks to your local Ollama. Two features can reach
-further, both off until you turn them on in Settings.
+Your conversations, your models, and your files never leave your machine. Two
+features can make outbound requests, and both can be switched off.
 
-**Update check.** Asks GitHub once per launch whether a newer release exists. An
-anonymous read of the public releases list, with no account, token, or identifier
-beyond a version string in the user agent.
+**Reading web pages.** On by default. The `read_url` tool fetches a page so you
+can paste a link and ask about it. It is restricted to public `http` and `https`
+addresses, checked against the resolved IP rather than the hostname, so anything
+on your machine or private network is refused. Every redirect is re-checked.
+Requests are bounded in time and size, so a slow or hostile site cannot hang a
+reply.
 
-**URL reader.** Adds the `read_url` tool so you can paste a link and ask about the
-page. This one is more serious, because the model chooses the address. It is
-restricted to public `http` and `https` pages, checked against the resolved IP
-rather than the hostname, so addresses on your machine or private network are
-refused. Every redirect is re-checked. Requests have a time limit and the
-response size is capped, so a slow or hostile site cannot hang a reply. Failures
-are reported to the model rather than guessed around.
+The model chooses the address it fetches. It is instructed to use links you
+provide, but that is an instruction rather than an enforced rule, so a model may
+in principle fetch something you did not paste. Every call is shown in the thread
+with the exact URL, and you can turn the tool off in Settings.
 
-Both switches are enforced on the server, not just in the interface. With them
-off, no request is made regardless of what asks for one.
+**Update check.** Off by default. Asks GitHub once per launch whether a newer
+release exists: an anonymous read of the public releases list, with no account,
+token, or identifier beyond a version string in the user agent.
+
+Both switches are enforced on the server, not just in the interface. Turn both
+off and Lantern contacts nothing but your local Ollama.
 
 ## Layout
 
@@ -247,6 +261,7 @@ static/
     markdown.js      markdown, syntax highlighting, LaTeX subset
     modals.js        settings, personas, models, parameters, guide
     palette.js       command palette
+    onboard.js       first-run flow: Ollama check, model, permissions
     theme.js         theme variables
     api.js           fetch and NDJSON streaming
     util.js          helpers

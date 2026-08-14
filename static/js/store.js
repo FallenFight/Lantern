@@ -18,6 +18,7 @@ export const S = {
   chat: null,          // the chat currently on screen
   version: '',         // reported by the server, shown in Settings → About
   update: null,        // {latest, outdated, url, error} once checked, else null
+  firstRun: false,     // server says this data folder is brand new
   tools: [],           // registry from the server: [{name, description, summary}]
   toolRoundLimit: 4,   // server-advertised cap on tool rounds per reply
   ollamaOk: true,
@@ -204,6 +205,7 @@ export async function loadBootstrap() {
   S.personas = data.personas || [];
   S.prompts = data.prompts || [];
   S.folders = data.folders || [];
+  S.firstRun = !!data.first_run;
   S.chats = data.chats || [];
   S.models = data.models || [];
   S.running = data.running || [];

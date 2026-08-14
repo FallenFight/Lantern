@@ -467,6 +467,110 @@ against a data folder written by this build** lists every chat, opens a filed on
 with its messages, and *preserves* `folder_id` through its own save, because it
 round-trips the whole chat dict. Degraded, not broken, exactly as promised.
 
+## The first-run flow
+
+Three steps, because a new user has exactly three questions: is Ollama working,
+which model, and what is this allowed to do. Skippable at every point — an
+onboarding flow you cannot escape is worse than none, and skipping leaves every
+default exactly as it ships.
+
+**Detecting "first run" is the part that can go wrong.** The obvious signal is
+`settings.onboarded`, and it is the wrong one: an existing install that has never
+opened Settings has no `settings.json`, so it reads as un-onboarded and gets
+greeted on upgrade. That is the "new code greets an old user" failure that makes
+an update feel broken. `first_run()` requires **no settings file *and* no chats**
+— someone who has used Lantern has history, whatever their settings look like.
+Verified both ways: a fresh folder reports true, a folder with one chat reports
+false.
+
+**Two things the flow had to fix about itself**, both found by clicking it:
+
+- Boot creates a blank chat *before* the flow runs, and that chat captured
+  whichever model was default at the time. So picking a model in onboarding left
+  the chat in front of you showing a different one. The flow now retargets the
+  open chat when it is still empty; a chat with history keeps the model it was
+  answered with.
+- Turning *off* "read web pages" changed the setting but not the tool registry
+  the front end holds, so the pill still counted `read_url` until a reload. It
+  re-fetches now, the same way the Settings row does.
+
+The permissions step is where a future web-search switch belongs, alongside the
+reader — it is the one place a user is already being asked what this may reach.
+
+## Think and Tools live under the composer
+
+Moved there in 1.3.0. They change the **next message**; model and persona are
+settings for the whole chat. Grouping by what a control affects rather than by
+what it looks like puts the send-time controls with the box you type in, and
+leaves the topbar holding chat-level state.
+
+**The trap is the dropdown direction.** `.menu` is `position: absolute; top:
+calc(100% + 8px)`, which opens downward — fine in a topbar, useless eight pixels
+from the bottom of the window, where the menu would render off-screen entirely.
+Both menus carry `.menu-up`, which flips to `bottom: calc(100% + 8px)` and moves
+`transform-origin` so the open animation still grows from the anchored edge.
+Verified by measuring: the menu's bottom sits above the pill's top and the whole
+box is inside the viewport.
+
+**Also caught by looking rather than reasoning:** `.pill-label` truncates with an
+ellipsis, which exists for long model names in the topbar. At a narrow window
+that rendered `Tools · a…`. The composer row opts out; its labels are short and
+fixed.
+
+## The URL reader ships enabled — and what "local-first" actually means
+
+Changed in 1.3.0, deliberately, after shipping it off by default in 1.2.0.
+
+The argument that won: **a user pasting a link and asking about it has already
+said what they want.** Answering "I can't read that" until they hunt through
+Settings is the wrong default — it fails the one case the feature exists for.
+
+The argument it beat was the offline guarantee, and the honest version is that
+the guarantee was drawn in the wrong place. Local-first here is about *inference
+and data*: the model runs on your machine, the chats are files on your disk,
+nothing is uploaded, there is no account and no telemetry. "Never resolves a
+hostname" was a stricter promise that nobody actually needed, and it was
+protecting against the wrong thing.
+
+**What did not change is the part that matters.** The fence is identical: public
+http(s) only, checked on the resolved IP so `localtest.me` and friends are
+caught, re-checked at every redirect, bounded in time and size, refused for
+anything on the machine or the private network. Turning it on by default does not
+loosen a single one of those. **The fence is the invariant; its default is not.**
+
+**The residual risk, stated rather than hidden:** the *model* picks the address.
+It is told to use links the user provided, but that is prompt text, not an
+enforced rule, so a model can in principle fetch something that was never pasted.
+Every call is rendered in the thread with its exact URL, so it is visible, and
+the tool can be switched off on its own. Enforcing it properly would mean
+checking the requested URL against the conversation text, which the tool cannot
+see today — `run_tool()` receives a name and arguments and nothing else. That is
+the obvious next hardening if this ever feels too loose.
+
+The update check stays **off** by default. It is not the same shape: nobody has
+asked for it in the moment, so there is no request to honour.
+
+## Tools: off and auto, with auto the default
+
+"On" became **"Auto"**, and it is what new chats start with. The word is the
+honest one: Lantern offers the tools and the *model* decides whether to call
+anything. Nothing about the request changed — this is a rename plus a default
+flip, not a new mode.
+
+Two consequences worth knowing:
+
+- **Existing installs flip too.** `get_settings()` merges stored values over the
+  defaults, so anyone who never touched `tools_default` picks up the new default
+  on upgrade. Their existing chats keep whatever `tools` value they were saved
+  with; only new chats change. Settings → Behaviour turns it back off.
+- **It does not enable the URL reader.** `read_url` is gated separately on
+  `web_reader`, which stays off. Tools going auto by default must not quietly
+  turn on the one tool that reaches off the machine, and it does not.
+
+The cost this trades away is real and was the original reason for defaulting off:
+tool schemas are sent on every turn, so auto costs prompt tokens even when no
+tool is called. That is the trade the setting exists to let you undo.
+
 ## The URL reader
 
 The second thing that can reach off this machine, and much sharper than the
@@ -815,8 +919,9 @@ So: before a build or a release, actually click these. Two minutes.
 - [ ] Right-click a chat row — menu appears **at the cursor and above** the
       sidebar
 - [ ] ⋮ chat menu still opens anchored under the button
-- [ ] Model picker, persona picker, Think pill, Tools pill — each opens and the
-      caret menus work
+- [ ] Model and persona pickers in the topbar; Think and Tools **under the
+      composer** — each opens, and both caret menus open *upward* and stay on
+      screen. A bottom-anchored menu that opens downward is invisible
 - [ ] Tools on: ask the time in another timezone; expand the tool row
 - [ ] **URL reader** (Settings → Behaviour → *Let the model read web pages*):
       paste a real link and ask about it, then ask it to read a URL that does
@@ -845,6 +950,10 @@ So: before a build or a release, actually click these. Two minutes.
       release, because nobody re-counts prose. Anything of the form *"N of X"* in
       the README either needs a check in `tools/lint.py` or should not be a
       number at all
+- [ ] **First run**, against an empty `LANTERN_DATA`: the flow appears, the
+      model you pick is the one the open chat uses, and it does *not* appear
+      again on reload. Then point at a folder with chats and confirm it stays
+      away — greeting an existing user is the failure that matters
 - [ ] Reload with a reply in flight; switch chats mid-reply
 
 Also run:
@@ -881,6 +990,15 @@ check that matches one phrasing is a check you can edit your way out of by
 accident.** And the count itself was wrong: `COUNTED_SOURCES` omitted
 `build-app.sh` and `lantern`, hiding ~280 lines, so the README could claim "under
 10,000" while `wc` said 10,044.
+
+**It happened a third time, after that rule was written down.** The Layout-block
+check required the code fence to sit immediately under `## Layout`. The README
+rewrite put a sentence in between, the pattern stopped matching, and the check
+went *silent* — taking a newly added `onboard.js` with it, which is exactly what
+it exists to catch. Lint reported clean on a README missing a source file. It now
+finds the fence anywhere in the section **and treats not finding it as a
+failure**, the same fix as the line count. **When you write a check, ask what it
+does when it matches nothing.** Twice now the answer has been "passes quietly".
 
 Second attempt, and the one that ends it: **the README names things and never
 counts them.** Every one of the six failures was a number restating something the
@@ -965,7 +1083,7 @@ Still to do, and none of it is blocking anything:
 
 ## Where things stand
 
-**Shipped: `v1.2.1`, and the repo is public.**
+**Shipped: `v1.2.2`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
 Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
@@ -994,7 +1112,8 @@ The three patch releases after it, oldest first:
   How it is gated is under *The update check* above.
 
 Since then: **`1.1.0`** added folders for chats, **`1.2.0`** the opt-in
-`read_url` tool, and **`1.2.1`** a Windows/Linux browser path — audited rather
+`read_url` tool, **`1.2.2`** the first-run flow and the default flips (tools on
+auto, the URL reader enabled), and **`1.2.1`** a Windows/Linux browser path — audited rather
 than tested, and labelled that way; see *Windows and Linux* above — the second thing that can reach off the machine, and the first
 where the *model* picks the address. *The URL reader* above has the fence and the
 two hang-the-reply bugs a robustness pass caught after the first suite passed.
@@ -1181,7 +1300,13 @@ knowing your gaps is useful; they are not on the menu.
    maintain, and unsigned Windows binaries hit SmartScreen exactly as unsigned
    Mac ones hit quarantine. Build-it-yourself answers both. Waiting for demand.
 6. Speech-to-text / TTS.
-7. Context compaction when the window fills. The cheap half is done — the default
+7. **Documentation cleanup.** `NOTES.md` is past a thousand lines and is read
+   front-to-back by whoever picks this up next, which is the wrong shape for it.
+   It wants splitting by when you need it — the standing constraints, the traps
+   worth reading before touching code, and the archive of decisions already made
+   — rather than one scroll in the order things happened. `README.md` was cut to
+   size already; this is the other half.
+8. Context compaction when the window fills. The cheap half is done — the default
    `num_ctx` went from 8192 to **32768** in 0.9.0, measured at **+0.83 GB
    resident on a 9B model, about 34 MB per 1k tokens**, for 4× the usable
    conversation. 65536 would have cost ~2 GB for headroom almost nobody reaches.

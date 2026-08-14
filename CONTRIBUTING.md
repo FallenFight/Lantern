@@ -11,14 +11,26 @@ traps that cost real time — read it before changing anything structural.**
   modules on the front end. No npm, no build step, no CDN, no libraries.
 - **`server.py` stays Python 3.9-compatible**, so the app can fall back to the
   `/usr/bin/python3` that ships with macOS. No `match`, no `X | Y` at runtime.
-- **Offline by default.** The only network call is to the local Ollama. Anything
-  that changes that is opt-in and gets raised first. There are **two** exceptions
-  so far, both off by default and both gated **on the server** so the switch is
-  the only thing that can produce a request: the update check added in 1.0.3, and
-  the `read_url` tool. The URL reader is the sharper one — the
-  *model* picks the address, so it is fenced to public http(s) only, on the
-  resolved IP, re-checked at every redirect. See `NOTES.md` → *The update check*
-  and *The URL reader*. A third one needs the same conversation.
+- **Local-first, which is about inference and data — not about never opening a
+  socket.** Conversations, models and files stay on the machine. That is the
+  promise; "makes no network call" is not, and stopped being true in 1.3.0.
+
+  Two outbound paths exist, both gated **on the server** so the switch is the
+  only thing that can produce a request:
+
+  - `read_url` — **ships enabled.** Pasting a link and asking about it is an
+    unambiguous request, and refusing until the user finds a setting is the wrong
+    default.
+  - the update check (1.0.3) — **ships disabled.**
+
+  **The fence on `read_url` is the invariant, not its default.** Public http(s)
+  only, checked on the *resolved IP* so names that resolve to loopback are
+  caught, re-checked at every redirect, bounded in time and size. Don't loosen
+  any of that. Note the model picks the address and is only *instructed* to use
+  links the user gave it.
+
+  See `NOTES.md` → *The URL reader* and *The update check*. **A third outbound
+  path still gets raised before it is built.**
 - **The same-origin guard in `server.py` stays.** Don't loosen it.
 
 ## Data safety

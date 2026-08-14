@@ -228,8 +228,19 @@ def check_docs(root: Path) -> list:
 
     # 6. A tracked source file nobody documented. Basenames only — the Layout
     #    block is an indented tree, not full paths.
-    layout = re.search(r"## Layout\n+```\n(.*?)```", readme, re.S)
-    if layout:
+    #
+    #    This check went silent once and took a new file with it: the pattern
+    #    required the fence to sit immediately under the heading, and a rewrite
+    #    put a sentence in between. Same disease as the line count — a check
+    #    matching one shape, edited around by accident. So the fence is now found
+    #    anywhere in the section, and **not finding it is itself a failure**.
+    #    Silence is the one outcome a check must never have.
+    layout = re.search(r"## Layout\b.*?```\n(.*?)```", readme, re.S)
+    if not layout:
+        problems.append("README.md: no Layout code block found under '## Layout'. "
+                        "Without it nothing checks that new source files are "
+                        "documented — fix the block or delete this check")
+    else:
         listed = layout.group(1)
         for path in sorted((root / "static" / "js").glob("*.js")):
             if path.name not in listed:

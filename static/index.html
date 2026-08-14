@@ -75,23 +75,6 @@
           <div class="menu" id="persona-menu" hidden></div>
         </div>
 
-        <div class="picker" id="think-wrap" hidden>
-          <button class="pill pill-think" id="think-toggle" title="Extended thinking">
-            <svg viewBox="0 0 24 24" class="ic"><path d="M9.5 3.5a5 5 0 00-4 8 4 4 0 001.5 6.5V21h6v-3a4 4 0 001.5-6.5 5 5 0 00-4-8zM10 21v-4"/></svg>
-            <span class="pill-label" id="think-label">Think</span>
-            <span id="think-caret" hidden><svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg></span>
-          </button>
-          <div class="menu" id="think-menu" hidden></div>
-        </div>
-
-        <div class="picker" id="tools-wrap" hidden>
-          <button class="pill pill-tools" id="tools-toggle" title="Tool calling">
-            <svg viewBox="0 0 24 24" class="ic"><path d="M21 4.2a6 6 0 01-7.6 7.6l-7 7a2.2 2.2 0 01-3.2-3.2l7-7a6 6 0 017.6-7.6l-3.5 3.5 3.2 3.2z"/></svg>
-            <span class="pill-label" id="tools-label">Tools</span>
-            <span id="tools-caret"><svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg></span>
-          </button>
-          <div class="menu" id="tools-menu" hidden></div>
-        </div>
       </div>
 
       <div class="topbar-right">
@@ -159,6 +142,27 @@
           <svg viewBox="0 0 24 24" class="ic"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
         </button>
       </div>
+      <!-- Send-time controls: these change the *next* message, so they live
+           with the composer rather than the topbar, which holds chat settings. -->
+      <div class="composer-controls">
+        <div class="picker" id="think-wrap" hidden>
+          <button class="pill pill-think" id="think-toggle" title="Extended thinking">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M9.5 3.5a5 5 0 00-4 8 4 4 0 001.5 6.5V21h6v-3a4 4 0 001.5-6.5 5 5 0 00-4-8zM10 21v-4"/></svg>
+            <span class="pill-label" id="think-label">Think</span>
+            <span id="think-caret" hidden><svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="menu menu-up" id="think-menu" hidden></div>
+        </div>
+
+        <div class="picker" id="tools-wrap" hidden>
+          <button class="pill pill-tools" id="tools-toggle" title="Tool calling">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M21 4.2a6 6 0 01-7.6 7.6l-7 7a2.2 2.2 0 01-3.2-3.2l7-7a6 6 0 017.6-7.6l-3.5 3.5 3.2 3.2z"/></svg>
+            <span class="pill-label" id="tools-label">Tools</span>
+            <span id="tools-caret"><svg viewBox="0 0 24 24" class="ic ic-sm"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="menu menu-up" id="tools-menu" hidden></div>
+        </div>
+      </div>
       <div class="composer-foot">
         <span id="ctx-hint"></span>
         <span class="grow"></span>
@@ -177,6 +181,19 @@
   <div class="palette-box">
     <input id="palette-input" placeholder="Type a command or search…" autocomplete="off" spellcheck="false">
     <div class="palette-list" id="palette-list"></div>
+  </div>
+</div>
+
+<div class="modal onboard" id="onboard" hidden>
+  <div class="modal-box onboard-box">
+    <div class="modal-body" id="onboard-body"></div>
+    <footer class="onboard-foot">
+      <button class="btn btn-ghost" id="onboard-skip">Skip</button>
+      <span class="ob-dots" id="onboard-dots"></span>
+      <span class="grow"></span>
+      <button class="btn btn-ghost" id="onboard-back" hidden>Back</button>
+      <button class="btn btn-primary" id="onboard-next">Next</button>
+    </footer>
   </div>
 </div>
 

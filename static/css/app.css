@@ -1132,6 +1132,28 @@ button { cursor: pointer; background: none; border: 0; }
 .btn-stop { background: var(--fg); color: var(--bg); box-shadow: var(--shadow-sm); }
 .btn-stop .ic { fill: currentColor; stroke: none; }
 
+/* Think and Tools, under the composer: they change the next message, so they
+   belong with the box you type in rather than the topbar. */
+.composer-controls {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 9px 4px 0;
+}
+.composer-controls .pill {
+  padding: 5px 10px; font-size: .78rem; border-radius: 999px;
+}
+.composer-controls .pill .ic { width: 15px; height: 15px; }
+.composer-controls .pill .ic-sm { width: 12px; height: 12px; }
+/* These labels are short and fixed. The ellipsis on .pill-label is there for
+   long model names in the topbar, and truncated "Tools · a…" at narrow widths. */
+.composer-controls .pill-label { overflow: visible; text-overflow: clip; }
+
+/* A dropdown anchored near the bottom of the window has to open upward, or it
+   renders off-screen. The topbar pickers keep the default downward direction. */
+.menu-up {
+  top: auto; bottom: calc(100% + 8px);
+  transform-origin: bottom left;
+}
+
 .composer-foot {
   display: flex; align-items: center; gap: 9px;
   padding: 8px 8px 0; min-height: 18px;
@@ -1517,3 +1539,49 @@ mark.find-hit.on {
   border: 1px solid var(--glass-line); box-shadow: var(--sheen);
 }
 .theme-chip.on .theme-swatch { box-shadow: 0 0 0 2px var(--accent-line), var(--sheen); }
+
+/* ═════════════════════════ first run ═════════════════════════ */
+/* Shown once on a brand-new data folder. Skippable everywhere: an onboarding
+   flow you cannot escape is worse than none. */
+.onboard { z-index: 95; }
+.onboard-box { max-width: 540px; width: min(540px, calc(100vw - 40px)); }
+.onboard-box .modal-body { padding: 26px 26px 8px; }
+
+.ob-step h3 { font-size: 1.24rem; font-weight: 650; margin: 0 0 8px; }
+.ob-lead { color: var(--fg-2); font-size: .875rem; line-height: 1.55; margin: 0 0 18px; }
+
+.ob-check {
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 13px 15px; background: var(--bg-2);
+}
+.ob-check.good { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.ob-check.warn { border-color: color-mix(in srgb, #e0a44a 45%, var(--line)); }
+.ob-check-title { font-weight: 600; font-size: .9rem; margin-bottom: 3px; }
+.ob-check-sub { color: var(--fg-2); font-size: .82rem; line-height: 1.5; }
+
+.ob-models { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+.ob-model {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 13px; border-radius: var(--r-sm); text-align: left;
+  border: 1px solid var(--line); background: var(--bg-2);
+  transition: border-color .15s, background .15s;
+}
+.ob-model:hover { background: var(--bg-hover); }
+.ob-model.on { border-color: var(--accent); background: var(--accent-soft); }
+.ob-model-body { flex: 1; min-width: 0; }
+.ob-model-name { display: block; font-size: .88rem; font-weight: 550; }
+.ob-model-sub { display: block; color: var(--fg-3); font-size: .76rem; font-family: var(--mono); }
+
+.ob-perm { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+.ob-perm:last-child { padding-bottom: 4px; }
+.ob-perm-body { flex: 1; min-width: 0; }
+.ob-perm-title { font-size: .89rem; font-weight: 550; margin-bottom: 2px; }
+.ob-perm-sub { color: var(--fg-2); font-size: .8rem; line-height: 1.5; }
+
+.onboard-foot {
+  display: flex; align-items: center; gap: 9px;
+  padding: 14px 26px 20px; border-top: 1px solid var(--line);
+}
+.ob-dots { display: inline-flex; gap: 5px; margin-left: 4px; }
+.ob-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--bg-active); transition: background .2s; }
+.ob-dots i.on { background: var(--accent); }

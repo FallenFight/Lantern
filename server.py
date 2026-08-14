@@ -48,7 +48,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 # The update check. Unauthenticated and read-only; GitHub allows 60 requests an
 # hour per IP, which one check per launch cannot come near.
@@ -89,18 +89,31 @@ DEFAULT_SETTINGS = {
     "render_markdown": True,
     "thinking_open": False,       # auto-expand thinking blocks while streaming
     "sidebar_collapsed": False,
-    # Whether a new chat starts with tool calling on. Off by default: the tool
-    # schemas cost prompt tokens on every turn and some models reach for a tool
-    # when prose would do.
-    "tools_default": False,
+    # Whether a new chat starts with tool calling on. On by default since 1.3.0 —
+    # the pill reads "auto" because the model decides whether to call anything,
+    # and tools are only ever offered to models that advertise support. Turn this
+    # off if you would rather pay no schema tokens until you ask.
+    #
+    # Note this does *not* enable the URL reader: `read_url` is gated separately
+    # on `web_reader`, which stays off.
+    "tools_default": True,
     # How long Ollama keeps a model in memory after a reply. "" uses Ollama's
     # own default (5m). Longer avoids paying a full reload after a pause.
     "keep_alive": "",
     "preload_default": False,
-    # Lets the model fetch a web page. Off by default: it is the only tool that
-    # reaches off this machine, and the *model* picks the address. See the fence
-    # around _tool_read_url.
-    "web_reader": False,
+    # Set once the first-run flow is finished or skipped. Never consulted alone:
+    # see first_run() for why the *absence* of history matters more.
+    "onboarded": False,
+    # Lets the model fetch a web page. On by default since 1.3.0: pasting a link
+    # and asking about it is an unambiguous request, and refusing until you find
+    # a setting is the wrong default. "Local-first" is about where inference
+    # happens, not about never resolving a hostname.
+    #
+    # The fence around _tool_read_url does not change and is what matters:
+    # public http(s) only, checked on the resolved IP, re-checked at every
+    # redirect, bounded in time and size. Switch this off to go back to a build
+    # that makes no outbound request at all.
+    "web_reader": True,
     # Whether to ask GitHub, once per launch, if a newer release exists. Off by
     # default and the only outbound call in the app that is not to your local
     # Ollama — the offline guarantee is that nothing leaves the machine unless
@@ -397,6 +410,27 @@ def get_prompts() -> list:
         ]
         write_json(prompts_path(), {"prompts": seeded})
         return seeded
+
+
+def first_run() -> bool:
+    """
+    Whether to offer the first-run flow.
+
+    Deliberately not just `settings["onboarded"]`. An existing install that has
+    never opened Settings has no settings.json at all, so it would read as
+    un-onboarded and get the welcome flow on upgrade — which is exactly the kind
+    of "new code greets an old user" mistake that makes an update feel broken.
+
+    So: only when there is no settings file *and* no history. Someone who has
+    used Lantern has chats, whatever their settings look like.
+    """
+    with _LOCK:
+        if get_settings().get("onboarded"):
+            return False
+        if settings_path().exists():
+            return False
+        ensure_dirs()
+        return not any(CHATS.glob("c_*.json"))
 
 
 def get_folders() -> list:
@@ -1653,6 +1687,7 @@ class Handler(BaseHTTPRequestHandler):
                 "personas": get_personas(),
                 "prompts": get_prompts(),
                 "folders": get_folders(),
+                "first_run": first_run(),
                 "chats": list_chats(),
                 "version": VERSION,
                 "tools": tool_catalog(),

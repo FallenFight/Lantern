@@ -350,16 +350,18 @@ export function openSettings() {
     toggle(st.show_stats, (v) => { patchSettings({ show_stats: v }); emit('chat', {}); })));
   body.append(srow('Auto-expand thinking', 'Open the thought panel while the model reasons.',
     toggle(st.thinking_open, (v) => patchSettings({ thinking_open: v }))));
-  body.append(srow('Start new chats with tools on',
-    'Lets the model call Lantern\'s local tools without switching them on each time. '
-    + 'The schemas cost prompt tokens on every turn.',
+  body.append(srow('Start new chats with tools on auto',
+    'The model may call Lantern\'s local tools and decides when to. Turn this off '
+    + 'to start every chat with tools disabled — the schemas cost prompt tokens on '
+    + 'every turn. Does not affect the web page reader below, which is separate.',
     toggle(st.tools_default, (v) => patchSettings({ tools_default: v }))));
   // The tools registry is served by the server, so switching this refreshes it:
   // with the setting off the model is never told read_url exists.
   body.append(srow('Let the model read web pages',
-    'Adds a read_url tool that fetches a link and reads its text. Off by default — '
-    + 'it is the only tool that reaches off this machine, and the model chooses the '
-    + 'address. Pages on this machine or your private network are always refused.',
+    'Adds a read_url tool, so pasting a link and asking about it works. This is the '
+    + 'only part of Lantern that reaches the internet — turn it off and nothing but '
+    + 'your local Ollama is ever contacted. Pages on this machine or your private '
+    + 'network are always refused, switched on or not.',
     toggle(st.web_reader, async (v) => {
       await patchSettings({ web_reader: v });
       S.tools = (await api.tools()).tools || [];

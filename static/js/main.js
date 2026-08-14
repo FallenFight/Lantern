@@ -20,6 +20,7 @@ import {
   openPalette, closePalette, paletteOpen, registerCommands, wirePalette,
 } from './palette.js';
 import { applyTheme, resolvedTheme } from './theme.js';
+import { onboardingNeeded, startOnboarding, wireOnboarding } from './onboard.js';
 import {
   $, $$, el, svg, ICON, toast, dayBucket, shortModel, bytes, num,
   autosize, debounce, copyText, MOD, isMac,
@@ -239,10 +240,10 @@ function renderTopbar() {
     const on = !!S.chat?.tools;
     toolsBtn.classList.toggle('on', on);
     const count = S.tools.length;
-    $('#tools-label').textContent = on ? `Tools · ${count}` : 'Tools';
+    $('#tools-label').textContent = on ? `Tools · auto` : 'Tools · off';
     toolsBtn.title = on
-      ? `${count} tool${count === 1 ? '' : 's'} offered to the model — click to turn off`
-      : 'Tool calling off — click to let the model call Lantern\'s tools';
+      ? `${count} tool${count === 1 ? '' : 's'} offered; the model decides whether to call them`
+      : 'Tools off for this chat — click to offer them';
   }
 
   const dot = $('#status-dot');
@@ -507,7 +508,9 @@ function openToolsMenu() {
       run: () => setTools(false),
     }));
     menu.append(menuItem({
-      title: 'On', sub: 'The model may call any tool below',
+      // "Auto" rather than "On": the model decides whether to call anything,
+      // and the tools are only offered to models that advertise support.
+      title: 'Auto', sub: 'Offer the tools below; the model decides',
       on: !!S.chat?.tools,
       run: () => setTools(true),
     }));
@@ -1133,7 +1136,7 @@ function setupCommands() {
     { title: 'Thinking: high', keywords: 'think effort', when: () => thinkingSupported(), run: () => setThink('high') },
     { title: 'Toggle tools', keywords: 'tool calling function date time', iconHtml: svg(ICON.tool, 'ic'), when: () => toolsSupported(), run: toggleTools },
     { title: 'Tools: off', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(false) },
-    { title: 'Tools: on', keywords: 'tool calling function', when: () => toolsSupported(), run: () => setTools(true) },
+    { title: 'Tools: auto', keywords: 'tool calling function on', when: () => toolsSupported(), run: () => setTools(true) },
     { title: 'New folder', keywords: 'folder group organise organize sort', iconHtml: svg(ICON.folder, 'ic'), run: async () => {
       const name = prompt('Folder name', '');
       if (name === null || !name.trim()) return;
@@ -1359,7 +1362,11 @@ async function init() {
   renderThread();
   renderVersionLine();
   restoreDraft();
-  $('#input').focus();
+
+  // A brand-new data folder gets the welcome flow instead of a focused composer.
+  wireOnboarding();
+  if (onboardingNeeded()) startOnboarding();
+  else $('#input').focus();
 
   // After the UI is up, never as part of it: a launch with no internet must not
   // wait on a network timeout before the app appears.
