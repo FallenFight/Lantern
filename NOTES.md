@@ -18,17 +18,18 @@ manual and is kept accurate against the code.
 
 ## Where things stand
 
-**Shipped: `v1.2.2`, and the repo is public.**
+**Shipped: `v1.2.3`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
-Tool calling is complete (`current_datetime`, `search_chats`, `calculate`),
-model comparison ships with the side-by-side view, and there is a prompt library.
+Tool calling is complete (`current_datetime`, `search_chats`, `calculate`,
+`read_url`), model comparison ships with the side-by-side view, and there is a
+prompt library.
 `num_ctx` defaults to 32768. The stranger path is verified: an anonymous clone
 with credentials stripped from the environment builds and runs.
 
 **1.0 means "ready for strangers", not feature complete.** The compatibility
-promise it carries is above, under *The 1.0 compatibility promise* — it is about
-the chat JSON on disk, not an API.
+promise it carries is in [`docs/design.md`](docs/design.md) → *The 1.0
+compatibility promise* — it is about the chat JSON on disk, not an API.
 
 The three patch releases after it, oldest first:
 
@@ -45,6 +46,9 @@ The three patch releases after it, oldest first:
 - **`1.0.3`** — puts the version under the sidebar buttons and adds the opt-in
   update check: the first thing in the app that can reach past your own machine.
   How it is gated is under *The update check* above.
+
+**`1.2.3`** adds a full reset, a first-run flow you can replay from the palette,
+and splits these notes into `docs/`.
 
 Since then: **`1.1.0`** added folders for chats, **`1.2.0`** the opt-in
 `read_url` tool, **`1.2.2`** the first-run flow and the default flips (tools on
