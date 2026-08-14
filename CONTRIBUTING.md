@@ -4,8 +4,8 @@ Standing constraints and working notes for anyone changing this project,
 including future-you.
 
 A local chat interface for Ollama: Python 3 stdlib server, vanilla ES modules, no
-build step. **`NOTES.md` holds the reasoning, the rejected approaches, and the
-traps that cost real time — read it before changing anything structural.**
+build step. **`NOTES.md` has where things stand and what is still open; `docs/` holds the
+reasoning and the traps — read those before changing anything structural.**
 `README.md` is the user-facing manual and is kept accurate against the code.
 
 ## Hard constraints
@@ -32,7 +32,7 @@ traps that cost real time — read it before changing anything structural.**
   any of that. Note the model picks the address and is only *instructed* to use
   links the user gave it.
 
-  See `NOTES.md` → *The URL reader* and *The update check*. **A third outbound
+  See `docs/tools.md` → *The URL reader* and *The update check*. **A third outbound
   path still gets raised before it is built.**
 - **The same-origin guard in `server.py` stays.** Don't loosen it.
 
@@ -58,11 +58,12 @@ They have gone missing twice.
 - Small, always-shippable increments: build, verify, install, then move on.
 - Say plainly when something didn't work, or is reasoned rather than observed.
 - **Every feature or major change includes a docs pass.** Re-read `README.md`,
-  `NOTES.md` and this file and update whatever the change made untrue — it is part
+  `NOTES.md`, the relevant file in `docs/`, and this one, and update whatever
+  the change made untrue — it is part
   of the change, not follow-up work. `README.md` is a promise to users and has
   been wrong before (a stale model name, a line count off by 750, a claim that
   tools were never sent). If a change adds a trap or a rejected approach, it goes
-  in `NOTES.md` while the reasoning is still fresh.
+  in the right file under `docs/` while the reasoning is still fresh.
 - Prefer fewer, better-targeted checks over exhaustive ones — but never fewer
   *verified* claims. One decisive test beats five exploratory ones.
 
@@ -106,7 +107,7 @@ by rephrasing, because the number itself is what is banned.
 `tools/lint.py` also verifies quoted defaults equal the real ones, that doc links
 resolve, and that no source file is missing from the Layout block.
 
-Then the click-through list in `NOTES.md` → **Before you ship**. It is two
+Then the click-through list in `docs/shipping.md` → **Before you ship**. It is two
 minutes and it catches the class of bug that reading code does not.
 
 ## Picking the project back up

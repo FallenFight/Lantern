@@ -4,7 +4,7 @@ Check this project against mistakes it has already made.
 
 Not a general linter — there is no dependency budget for one, and a generic rule
 set would drown the real signal. Every check corresponds to something that
-actually shipped broken, and is written up in NOTES.md. When a new trap costs
+actually shipped broken, and is written up in docs/. When a new trap costs
 real time, add a check here.
 
     python3 tools/lint.py            # check the working tree
@@ -259,7 +259,7 @@ def main() -> int:
     for problem in problems:
         print(f"  {problem}")
     if problems:
-        print(f"\n{len(problems)} problem(s). See 'Before you ship' in NOTES.md.")
+        print(f"\n{len(problems)} problem(s). See docs/shipping.md.")
         return 1
     print(f"clean — code and docs consistent ({root.name})")
     return 0

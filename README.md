@@ -276,7 +276,11 @@ tools/make_icon.py   macOS: renders the icon procedurally
 
 tools/lint.py        checks the code and docs against past mistakes
 tools/hooks/         git hooks: git config core.hooksPath tools/hooks
-NOTES.md             design decisions and reasoning
+NOTES.md             where things stand, and what is still open
+docs/design.md       how it is built and why
+docs/tools.md        tool calling and the two network paths
+docs/features.md     comparison, folders, first run, reset
+docs/shipping.md     security model, data safety, pre-release checklist
 CONTRIBUTING.md      standing constraints and working notes
 data/                created on first run, unless a launcher points elsewhere
 ```
@@ -295,8 +299,9 @@ Chat writes are atomic, using a temporary file and a rename.
 - Context window: default 32768 tokens. Parameters has a button that reads the
   model's real limit.
 
-[`NOTES.md`](NOTES.md) covers the design decisions, the approaches that were
-tried and rejected, and the bugs worth remembering.
+[`NOTES.md`](NOTES.md) has the current state and the open list, and links to
+`docs/` for the design decisions, the approaches that were rejected, and the bugs
+worth remembering.
 
 ## Licence
 
