@@ -207,6 +207,36 @@ information the client does not have — the heuristic would delete real words.
 Rough joins are rarer and cheaper than lost ones. A raw completion endpoint would
 solve it properly and is a much larger change.
 
+## Seeds only ever reached new installs
+
+`get_personas()` seeded when the file was missing or empty and returned exactly
+what was stored otherwise. That reads as obviously right and is quietly wrong the
+first time a *later* release adds a seed: **Game Master shipped in 1.2.5 and
+appeared for nobody who had used Lantern before.** The reporter had updated, had
+the new build, and simply did not have the persona. Same latent bug in
+`get_prompts()`.
+
+The fix is to record which seeds have been *offered*, in
+`settings.seeded_personas` and `seeded_prompts`, rather than inferring it from
+whether the file is empty. Absent from that list means "never offered", not
+"deleted", so:
+
+- An existing install picks up a newly seeded persona once, on the next launch.
+- Deleting it sticks. The name stays recorded as offered, so it does not come
+  back on the next start — which is the behaviour a value check would have got
+  wrong in the other direction.
+- An install that predates the tracking has its **current names** treated as
+  already offered, or every persona it already has would be duplicated once.
+
+Verified against a copy of a real `personas.json`: Game Master is added exactly
+once, a second read does not duplicate it, and deleting it then restarting leaves
+it gone.
+
+**The general shape is worth remembering.** Any "seed on first run" is really
+"seed the things this install has never been offered", and the difference only
+shows up on the release *after* you add one — which is the worst time to find
+out.
+
 ## Roleplay, as a persona rather than a mode
 
 The Game Master persona narrates, hands control back every turn, and ends with

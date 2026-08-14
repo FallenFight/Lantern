@@ -48,7 +48,7 @@ except ImportError:      # exotic build with no zoneinfo — local time still wo
 
 # The single source of truth for the version. build-app.sh reads this line to
 # stamp Info.plist, so the app bundle and the About panel cannot disagree.
-VERSION = "1.2.5"
+VERSION = "1.2.6"
 
 # The update check. Unauthenticated and read-only; GitHub allows 60 requests an
 # hour per IP, which one check per launch cannot come near.
@@ -101,6 +101,13 @@ DEFAULT_SETTINGS = {
     # own default (5m). Longer avoids paying a full reload after a pause.
     "keep_alive": "",
     "preload_default": False,
+    # Names of seeded personas and prompts already offered. A seed added in a
+    # later release reaches existing installs exactly once: absent from this
+    # list means "never offered", not "deleted". Without it, get_personas() only
+    # ever seeded an empty file, so Game Master shipped in 1.2.5 and appeared for
+    # nobody who had used Lantern before.
+    "seeded_personas": [],
+    "seeded_prompts": [],
     # Set once the first-run flow is finished or skipped. Never consulted alone:
     # see first_run() for why the *absence* of history matters more.
     "onboarded": False,
@@ -397,50 +404,81 @@ def save_settings(patch: dict) -> dict:
         return current
 
 
+def _persona_from_seed(item: dict) -> dict:
+    now = time.time()
+    return {
+        "id": new_id("p"),
+        "name": item["name"],
+        "emoji": item["emoji"],
+        "prompt": item["prompt"],
+        "description": item.get("description", ""),
+        "model": None,
+        "params": {},
+        "think": None,
+        "created": now,
+        "updated": now,
+    }
+
+
 def get_personas() -> list:
+    """
+    Stored personas, plus any seed that has never been offered on this install.
+
+    The "never been offered" part matters. Seeding only an empty file meant a
+    persona added in a later release reached new installs and nobody else — Game
+    Master shipped in 1.2.5 and appeared for no existing user. Tracking the names
+    already offered fixes that *and* keeps deletion sticky: a seed you delete is
+    still recorded as offered, so it does not reappear on the next launch.
+    """
     with _LOCK:
         data = read_json(personas_path(), None)
-        if not data or not data.get("personas"):
-            now = time.time()
-            seeded = []
-            for item in SEED_PERSONAS:
-                seeded.append({
-                    "id": new_id("p"),
-                    "name": item["name"],
-                    "emoji": item["emoji"],
-                    "prompt": item["prompt"],
-                    "description": item.get("description", ""),
-                    "model": None,
-                    "params": {},
-                    "think": None,
-                    "created": now,
-                    "updated": now,
-                })
-            write_json(personas_path(), {"personas": seeded})
-            return seeded
-        return data["personas"]
+        stored = (data or {}).get("personas") or []
+        settings = get_settings()
+        offered = set(settings.get("seeded_personas") or [])
+        # An install that predates the tracking has its current names treated as
+        # already offered, or every existing persona would be duplicated once.
+        known = offered | {p.get("name") for p in stored if isinstance(p, dict)}
+
+        added = [_persona_from_seed(item) for item in SEED_PERSONAS
+                 if item["name"] not in known]
+        if added or not stored:
+            stored = stored + added
+            write_json(personas_path(), {"personas": stored})
+            save_settings({"seeded_personas": sorted(
+                known | {item["name"] for item in SEED_PERSONAS})})
+        return stored
 
 
 def get_prompts() -> list:
     """
     Reusable *user* prompts — the thing you type, not the system prompt.
 
-    Seeded once with the same four the empty screen offers, so the library shows
-    what it is for instead of opening empty. An empty file after that is a real
-    answer: the user deleted them.
+    Seeded with the same starting points the empty screen offers, so the library
+    shows what it is for instead of opening empty. An empty file after that is a
+    real answer: the user deleted them.
+
+    Same "offered once" tracking as personas, and for the same reason — a prompt
+    added in a later release would otherwise reach new installs only. See
+    get_personas().
     """
     with _LOCK:
         data = read_json(prompts_path(), None)
-        if isinstance(data, dict) and isinstance(data.get("prompts"), list):
-            return data["prompts"]
+        stored = data.get("prompts") if isinstance(data, dict) else None
+        first = not isinstance(stored, list)
+        stored = stored if isinstance(stored, list) else []
+        offered = set(get_settings().get("seeded_prompts") or [])
+        known = offered | {q.get("name") for q in stored if isinstance(q, dict)}
+
         now = time.time()
-        seeded = [
-            {"id": new_id("q"), "name": name, "text": text,
-             "created": now, "updated": now}
-            for name, text in SEED_PROMPTS
-        ]
-        write_json(prompts_path(), {"prompts": seeded})
-        return seeded
+        added = [{"id": new_id("q"), "name": name, "text": text,
+                  "created": now, "updated": now}
+                 for name, text in SEED_PROMPTS if name not in known]
+        if added or first:
+            stored = stored + added
+            write_json(prompts_path(), {"prompts": stored})
+            save_settings({"seeded_prompts": sorted(
+                known | {name for name, _ in SEED_PROMPTS})})
+        return stored
 
 
 def first_run() -> bool:
