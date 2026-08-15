@@ -115,6 +115,13 @@ knowing your gaps is useful; they are not on the menu.
    maintain, and unsigned Windows binaries hit SmartScreen exactly as unsigned
    Mac ones hit quarantine. Build-it-yourself answers both. Waiting for demand.
 6. Speech-to-text / TTS.
+9. **A chat statistics panel** — tokens, models used, tok/s over time, busiest
+   days. Everything it needs is already on disk in the chat files, so it is a
+   read-only view over data that exists: no new storage, no new dependency, no
+   network. Proposed and not yet wanted; cheap whenever it is.
+10. **Self-contained HTML export** — one styled file that opens anywhere, built
+   with the existing renderer so nothing is fetched. Fits the source-only
+   distribution story better than a screenshot does. Also proposed and deferred.
 7. ~~Documentation cleanup~~ — **done.** `NOTES.md` was 1,346 lines read
    front-to-back; it is an index now, with the reasoning split into `docs/` by
    when you need it. The README was cut to size in 1.2.2.
