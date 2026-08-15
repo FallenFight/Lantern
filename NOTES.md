@@ -21,58 +21,36 @@ manual and is kept accurate against the code.
 **Shipped: `v1.2.7`, and the repo is public.**
 <https://github.com/FallenFight/Lantern>
 
-Tool calling is complete (`current_datetime`, `search_chats`, `calculate`,
-`read_url`), model comparison ships with the side-by-side view, and there is a
-prompt library.
-`num_ctx` defaults to 32768. The stranger path is verified: an anonymous clone
-with credentials stripped from the environment builds and runs.
+Everything below works and is documented. Tool calling, model comparison with the
+side-by-side view, folders, a prompt library with fill-in blanks, an opt-in URL
+reader, a first-run flow, and a full reset. `num_ctx` defaults to 32768. The
+stranger path is verified: an anonymous clone with credentials stripped from the
+environment builds and runs.
 
-**1.0 means "ready for strangers", not feature complete.** The compatibility
+**1.0 meant "ready for strangers", not feature complete.** The compatibility
 promise it carries is in [`docs/design.md`](docs/design.md) → *The 1.0
-compatibility promise* — it is about the chat JSON on disk, not an API.
+compatibility promise* — it is about the chat JSON on disk, not an API, and it
+has held through every release since.
 
-The three patch releases after it, oldest first:
+### Releases
 
-- **`1.0.1`** — the only release so far that fixed something which *lost data*:
-  the orphan-closing-tag strip, plus the comparison bug pass above, five bugs of
-  which two destroyed messages. No new features, no format change. The 1.0
-  compatibility promise holds: chats written by 1.0.0 open unchanged, and a
-  message left with a single-entry `variants` array by the old failure path still
-  loads.
-- **`1.0.2`** — redraws the `tool` icon, malformed since 0.9.0. See the icon note
-  near the top of this file for the two SVG mistakes and the lesson. Cosmetic
-  only, and its own release because the Tools pill is on screen the whole time
-  you use the app.
-- **`1.0.3`** — puts the version under the sidebar buttons and adds the opt-in
-  update check: the first thing in the app that can reach past your own machine.
-  How it is gated is under *The update check* above.
+| | |
+|---|---|
+| `1.0.0` | Public, source-only |
+| `1.0.1` | Five comparison bugs, two of which lost messages |
+| `1.0.2` | The `tool` icon, malformed since 0.9.0 |
+| `1.0.3` | Version in the sidebar, opt-in update check — the first thing that reaches off the machine |
+| `1.1.0` | Folders for chats |
+| `1.2.0` | The `read_url` tool, opt-in, and the first place the *model* picks the address |
+| `1.2.1` | A Windows/Linux browser path — audited, not tested |
+| `1.2.2` | First-run flow; tools default to auto and the URL reader ships enabled |
+| `1.2.3` | Full reset, a replayable setup flow, and these notes split into `docs/` |
+| `1.2.4` | Three themes, the light-theme fix Mist had been shipping without, an appearance step |
+| `1.2.5` | Option chips, `roll_dice`, `{{placeholders}}`, and Continue |
+| `1.2.6` | Seeded personas and prompts reach existing installs, not just new ones |
+| `1.2.7` | Game Master seed withdrawn — it needed behaviour small models lack |
 
-**`1.2.7`** withdraws the Game Master seed. The chips and `roll_dice` stay; the
-persona depended on behaviour smaller local models do not have.
-
-**`1.2.6`** makes seeded personas and prompts reach existing installs — Game
-Master shipped in 1.2.5 and appeared for nobody who already used Lantern.
-
-**`1.2.5`** is the fun pass: option chips a model can offer as buttons, a Game
-Master persona with a `roll_dice` tool, `{{placeholders}}` in saved prompts, and
-a Continue action for replies that run out of room.
-
-**`1.2.4`** is a UI pass: three themes (Ember, Void, Sepia), the light-theme
-override fix that Mist had been shipping without, an appearance step in first
-run, and the last of the polish the notes had been carrying.
-
-**`1.2.3`** adds a full reset, a first-run flow you can replay from the palette,
-and splits these notes into `docs/`.
-
-Since then: **`1.1.0`** added folders for chats, **`1.2.0`** the opt-in
-`read_url` tool, **`1.2.2`** the first-run flow and the default flips (tools on
-auto, the URL reader enabled), and **`1.2.1`** a Windows/Linux browser path — audited rather
-than tested, and labelled that way; see *Windows and Linux* above — the second thing that can reach off the machine, and the first
-where the *model* picks the address. *The URL reader* above has the fence and the
-two hang-the-reply bugs a robustness pass caught after the first suite passed.
-
-Everything remaining is optional — see *Still open* below, ranked. Folders was
-cut from 1.0 deliberately: it is a feature, not a readiness gap.
+Everything remaining is optional — see *Still open* below, ranked.
 
 ## Still open
 
@@ -115,13 +93,6 @@ knowing your gaps is useful; they are not on the menu.
    maintain, and unsigned Windows binaries hit SmartScreen exactly as unsigned
    Mac ones hit quarantine. Build-it-yourself answers both. Waiting for demand.
 6. Speech-to-text / TTS.
-9. **A chat statistics panel** — tokens, models used, tok/s over time, busiest
-   days. Everything it needs is already on disk in the chat files, so it is a
-   read-only view over data that exists: no new storage, no new dependency, no
-   network. Proposed and not yet wanted; cheap whenever it is.
-10. **Self-contained HTML export** — one styled file that opens anywhere, built
-   with the existing renderer so nothing is fetched. Fits the source-only
-   distribution story better than a screenshot does. Also proposed and deferred.
 7. ~~Documentation cleanup~~ — **done.** `NOTES.md` was 1,346 lines read
    front-to-back; it is an index now, with the reasoning split into `docs/` by
    when you need it. The README was cut to size in 1.2.2.
@@ -134,6 +105,13 @@ knowing your gaps is useful; they are not on the menu.
    values over the defaults, so anyone with `num_ctx` already saved keeps 8192
    until they change it. That is deliberate; a silent memory jump on upgrade
    would be worse.
+9. **A chat statistics panel** — tokens, models used, tok/s over time, busiest
+   days. Everything it needs is already on disk in the chat files, so it is a
+   read-only view over data that exists: no new storage, no new dependency, no
+   network. Proposed and not yet wanted; cheap whenever it is.
+10. **Self-contained HTML export** — one styled file that opens anywhere, built
+   with the existing renderer so nothing is fetched. Fits the source-only
+   distribution story better than a screenshot does. Also proposed and deferred.
 
 ## Decisions that were considered and rejected
 
